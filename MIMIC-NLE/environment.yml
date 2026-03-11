@@ -1,0 +1,17 @@
+name: mimicnle
+channels:
+  - defaults
+dependencies:
+  - python=3.9
+  - pip
+  - setuptools
+  - wheel
+  - pip:
+    - black==22.6.0
+    - numpy==1.23.1
+    - spacy==3.4.4
+    - pydantic==1.10.13
+    - requests==2.28.1
+    - jinja2==3.1.2
+    - tqdm==4.64.0
+    - black==22.6.0

@@ -1,0 +1,12 @@
+physionet.org/
+files/
+files 2/
+tmp/
+pretrained/
+outputs/
+checkpoints/
+MIMIC-NLE/mimic-nle/mimic-nle-*.json
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
