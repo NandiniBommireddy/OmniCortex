@@ -6,6 +6,22 @@ from PIL import Image
 import torch
 from tqdm import tqdm
 
+# Monkey-patch torch.load to default map_location='cpu' so MedCLIP's
+# hardcoded torch.load calls don't segfault on machines without CUDA.
+_orig_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    kwargs.setdefault('map_location', 'cpu')
+    return _orig_torch_load(*args, **kwargs)
+torch.load = _patched_torch_load
+
+# Monkey-patch torch.meshgrid to always pass indexing='ij' (the original
+# behaviour). Without this, Swin Transformer's relative-position-bias code
+# triggers a native crash on macOS with older PyTorch builds.
+_orig_meshgrid = torch.meshgrid
+def _patched_meshgrid(*tensors, **kwargs):
+    kwargs.setdefault('indexing', 'ij')
+    return _orig_meshgrid(*tensors, **kwargs)
+torch.meshgrid = _patched_meshgrid
 
 from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -16,11 +32,17 @@ from medclip import MedCLIPProcessor
 
 def load_clip_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[DEBUG] device: {device}")
     encoder_name = MedCLIPVisionModelViT
+    print("[DEBUG] creating MedCLIPProcessor")
     feature_extractor = MedCLIPProcessor()
+    print("[DEBUG] creating MedCLIPModel")
     clip_model = MedCLIPModel(vision_cls=encoder_name)
+    print("[DEBUG] calling from_pretrained")
     clip_model.from_pretrained()
-    clip_model = clip_model.cuda()
+    print("[DEBUG] moving model to device")
+    clip_model = clip_model.to(device)
+    print("[DEBUG] load_clip_model done")
 
     return clip_model, feature_extractor, device
 
@@ -74,9 +96,8 @@ def get_retrieved_info_for_image(image_path, index_path, captions_path, k=7):
     return retrieved_captions
 
 
-#if __name__ == "__main__":
-    # index_path = datastore/kg_nle_index
-    # captions_path = datastore/kg_nle_index_captions.json
-    # image_path = 
-    #get_retrieved_info_for_image("image_path, index_path,captions_path, k=7")
-
+if __name__ == "__main__":
+    index_path = "tmp/demo/datastore/kg_nle_index"
+    captions_path = "tmp/demo/datastore/kg_nle_index_captions.json"
+    image_path = "physionet.org/mimic-cxr-jpg/2.1.0/files/p10/p10000032/s50414267/02aa804e-bde0afdd-112c0b34-7bc16630-4e384014.jpg"
+    get_retrieved_info_for_image(image_path, index_path,captions_path, k=7)

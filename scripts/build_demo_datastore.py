@@ -8,6 +8,7 @@ from pathlib import Path
 import faiss
 import numpy as np
 import torch
+import torchvision.transforms as T
 from medclip import MedCLIPModel, MedCLIPProcessor, MedCLIPVisionModelViT
 from PIL import Image, ImageFile
 
@@ -89,12 +90,6 @@ def aggregate_triplets_by_image(joined_rows):
 def load_clip_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     processor = MedCLIPProcessor()
-    if hasattr(processor, "image_processor"):
-        image_processor = processor.image_processor
-        if hasattr(image_processor, "do_convert_rgb"):
-            image_processor.do_convert_rgb = False
-        if isinstance(getattr(image_processor, "size", None), dict):
-            image_processor.size = image_processor.size.get("shortest_edge", 224)
     model = MedCLIPModel(vision_cls=MedCLIPVisionModelViT)
     original_torch_load = torch.load
     original_load_state_dict = model.load_state_dict
@@ -140,11 +135,23 @@ def encode_captions(captions, model, device, processor):
     return np.array(encoded)
 
 
+# Replicate MedCLIPFeatureExtractor preprocessing directly with torchvision,
+# bypassing the broken MedCLIPProcessor image pipeline (incompatible with
+# transformers >= 4.26 which changed CLIPImageProcessor.resize() to expect
+# dict-style size and numpy arrays instead of PIL Images).
+_MEDCLIP_IMG_TRANSFORM = T.Compose([
+    T.Resize(224),
+    T.CenterCrop(224),
+    T.ToTensor(),
+    T.Normalize(mean=0.5862785803043838, std=0.27950088968644304),
+])
+
+
 def encode_images(image_paths, model, processor, device):
     encoded = []
     for image_path in image_paths:
         image = Image.open(image_path).convert("RGB")
-        inputs = processor(images=[image], return_tensors="pt").pixel_values.to(device)
+        inputs = _MEDCLIP_IMG_TRANSFORM(image).unsqueeze(0).to(device)
         with torch.no_grad():
             emb = model.encode_image(pixel_values=inputs).cpu().numpy()
         encoded.append(emb[0])

@@ -1,4 +1,4 @@
-PYTHON   := python3.14
+PYTHON   := python3
 VENV     := .venv
 BIN      := $(VENV)/bin
 PIP      := $(BIN)/pip

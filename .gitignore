@@ -10,3 +10,5 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 .DS_Store
+.venv-radgraph
+.venv

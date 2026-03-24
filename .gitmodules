@@ -1,0 +1,3 @@
+[submodule "radgraph"]
+	path = radgraph
+	url = https://github.com/Stanford-AIMI/radgraph.git

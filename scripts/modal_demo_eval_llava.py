@@ -8,15 +8,15 @@ import modal
 APP_NAME = "kg-llava-demo-eval"
 VOLUME_NAME = "kg-llava-demo-train"
 
-ROOT = Path("/Users/apple/Desktop/GenAI-Project/CS7180-OmniCortex")
+ROOT = Path(__file__).resolve().parent.parent
 LOCAL_LLAVA = ROOT / "models" / "LLaVA"
-LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-demo50-kg-llava.json"
-LOCAL_IMAGES = ROOT / "physionet.org" / "2.0.0" / "files"
+LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava.json"
+LOCAL_IMAGES = ROOT / "physionet.org" / "mimic-cxr-jpg" / "2.1.0" / "files"
 LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_eval"
 
 REMOTE_ROOT = "/workspace"
 REMOTE_LLAVA = f"{REMOTE_ROOT}/LLaVA"
-REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-demo50-kg-llava.json"
+REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava.json"
 REMOTE_IMAGES = f"{REMOTE_ROOT}/images"
 REMOTE_TRAIN_OUT = f"{REMOTE_ROOT}/outputs"
 REMOTE_LORA_MODEL = f"{REMOTE_ROOT}/llava-lora-demo"
@@ -126,7 +126,7 @@ def main():
 
     with volume.batch_upload(force=True) as batch:
         batch.put_directory(str(LOCAL_LLAVA), "LLaVA")
-        batch.put_file(str(LOCAL_DATA), "data/mimic-nle-demo50-kg-llava.json")
+        batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava.json")
         batch.put_directory(str(LOCAL_IMAGES), "images")
 
     remote_path = run_demo_eval.remote()
