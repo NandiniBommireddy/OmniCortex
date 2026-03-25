@@ -166,6 +166,9 @@ def encode_images(image_paths, model, processor, device):
 
 
 def build_retrieval_outputs(records, model, processor, device):
+    if not records:
+        return None, [], {}
+
     captions = ["; ".join(r["triplets"]) for r in records]
     image_paths = [r["img_path"] for r in records]
     image_ids = [r["img_id"] for r in records]
@@ -220,10 +223,13 @@ def main():
     with open(aggregated_path, "w") as handle:
         json.dump(aggregated, handle, indent=2)
 
-    model, processor, device = load_clip_model()
-    index, captions, retrieved = build_retrieval_outputs(aggregated, model, processor, device)
+    if aggregated:
+        model, processor, device = load_clip_model()
+        index, captions, retrieved = build_retrieval_outputs(aggregated, model, processor, device)
+        faiss.write_index(index, str(output_dir / "kg_nle_index"))
+    else:
+        captions, retrieved = [], {}
 
-    faiss.write_index(index, str(output_dir / "kg_nle_index"))
     with open(output_dir / "kg_nle_index_captions.json", "w") as handle:
         json.dump(captions, handle, indent=2)
     with open(output_dir / "retrieved_triplets.json", "w") as handle:
@@ -231,6 +237,11 @@ def main():
 
     print(f"joined rows: {len(joined_rows)}")
     print(f"image-level rows with triplets: {len(aggregated)}")
+    if not aggregated:
+        print(
+            "warning: no image-level rows with triplets; skipped FAISS index build. "
+            "Check --image-root, metadata/split CSVs, and input row IDs."
+        )
     print(f"wrote datastore artifacts to {output_dir}")
 
 

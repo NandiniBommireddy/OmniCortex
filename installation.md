@@ -31,6 +31,9 @@ Download the following from mimic-cxr-jpg
 - mimic-cxr-2.0.0-metadata.csv.gz
 - mimic-cxr-2.0.0-split.csv.gz
 
+Download the following from mimic-cxr
+- cxr-study-list.csv.gz
+
 To donwload images
 ```shell
 cd physionet.org
@@ -38,13 +41,19 @@ cd physionet.org
 head -n 507 mimic-cxr-jpg/2.1.0/IMAGE_FILENAMES | wget -r -N -c -np -nH --cut-dirs=1 --user minh160302 --ask-password -i - --base=https://physionet.org/files/mimic-cxr-jpg/2.1.0/
 ```
 
+To download full reports
+```shell
+gzip -dc mimic-cxr/2.1.0/cxr-study-list.csv.gz | awk -F',' 'NR>1 && NR<=508 {gsub(/\r/,"",$3); print $3}' | wget -r -N -c -np -nH --cut-dirs=1 --user minh160302 --ask-password -i - --base=https://physionet.org/files/mimic-cxr/2.1.0/
+ ```
+
+
 <!-- Run -->
 Extract RadGraph triplets. Expected output includes: MIMIC-NLE/mimic-nle/mimic-nle-dev.json
 ```shell
 .venv-radgraph/bin/python scripts/extract_radgraph_triplets.py \
 --input MIMIC-NLE/mimic-nle/mimic-nle-train.json \
 --output tmp/demo/mimic-nle-train-radgraph.json \
---triplets-json tmp/demo/dev-triplets-map.json \
+--triplets-json tmp/demo/train-triplets-map.json \
 --model-type modern-radgraph-xl \
 --batch-size 4
 ```
