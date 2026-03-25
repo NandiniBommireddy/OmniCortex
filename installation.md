@@ -6,23 +6,13 @@ pyenv install 3.11.12
 pyenv local 3.11.12
 
 <!-- install radgraph first -->
-python3.11 -m venv .venv-radgraph
-source .venv-radgraph/bin/activate
-
-python -m pip install --upgrade pip setuptools wheel
-
-# Pin HF stack to RadGraph-compatible versions
-python -m pip install \
-  "torch==2.2.2" \
-  "transformers==4.44.2" \
-  "tokenizers==0.19.1" \
-  "huggingface_hub==0.24.6"
-
-# Install RadGraph from your local submodule/folder
-python -m pip install -e ./radgraph
+make install-radgraph
+make check-radgraph
+make freeze-radgraph
 
 
 <!-- install  -->
+deactivate
 make venv
 make install
 
@@ -51,7 +41,7 @@ head -n 507 mimic-cxr-jpg/2.1.0/IMAGE_FILENAMES | wget -r -N -c -np -nH --cut-di
 <!-- Run -->
 Extract RadGraph triplets. Expected output includes: MIMIC-NLE/mimic-nle/mimic-nle-dev.json
 ```shell
-.venv/bin/python scripts/extract_radgraph_triplets.py \
+.venv-radgraph/bin/python scripts/extract_radgraph_triplets.py \
 --input MIMIC-NLE/mimic-nle/mimic-nle-train.json \
 --output tmp/demo/mimic-nle-train-radgraph.json \
 --triplets-json tmp/demo/dev-triplets-map.json \
