@@ -3,6 +3,16 @@
 ## Overview
 This repository provides the official implementation of **"LLaVA Needs More Knowledge: Retrieval Augmented Natural Language Generation with Knowledge Graph for Explaining Thoracic Pathologies" (AAAI 2025).** KG-LLaVA integrates Knowledge Graph-based Retrieval-Augmented Generation (KG-RAG) with Vision-Language Models (VLMs) to generate Natural Language Explanations (NLEs) for medical imaging.
 
+## Important Note
+The root README is high-level and some commands below are stale for this local
+reproduction workflow. For the actual runnable demo pipeline used in this repo,
+see:
+
+- [docs/pipeline_runbook.md](docs/pipeline_runbook.md)
+
+That runbook documents the real script order, the Modal usage, the local image
+subset preparation, and the outputs produced at each stage.
+
 ## Table of Contents
 - [Installation](#installation)
 - [Dataset](#dataset)
