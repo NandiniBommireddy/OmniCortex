@@ -2,7 +2,11 @@ import argparse
 import csv
 import gzip
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from gcs_images import ImageRoot
 
 
 DIAGNOSIS_LIST = [
@@ -59,8 +63,7 @@ def get_pathologies(img_labels):
 def choose_image(subject_id, study_id, image_root, image_by_study):
     for dicom_id in sorted(image_by_study.get((subject_id, study_id), [])):
         rel_path = f"p{subject_id[:2]}/p{subject_id}/s{study_id}/{dicom_id}.jpg"
-        abs_path = image_root / rel_path
-        if abs_path.exists():
+        if image_root.exists(rel_path):
             return dicom_id, rel_path
     return None, None
 
@@ -100,10 +103,10 @@ def main():
     parser.add_argument("--image-root", required=True, help="Root containing JPG files")
     parser.add_argument("--metadata-csv-gz", required=True)
     parser.add_argument("--split-csv-gz", required=True)
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--output", required=True, help="Output JSON file path")
     args = parser.parse_args()
 
-    image_root = Path(args.image_root)
+    image_root = ImageRoot.create(args.image_root)
     image_by_study, split_by_image = load_metadata(args.metadata_csv_gz, args.split_csv_gz)
     retrieved_triplets = json.load(open(args.retrieved_triplets))
 
@@ -155,7 +158,7 @@ def main():
             f"And for the given image, {question}"
         )
 
-        output_row = {
+        output_rows.append({
             "id": dicom_id,
             "split": split,
             "image": rel_path,
@@ -169,8 +172,7 @@ def main():
                     "value": row["nle"],
                 },
             ],
-        }
-        output_rows.append(output_row)
+        })
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)

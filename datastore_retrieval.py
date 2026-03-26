@@ -53,12 +53,19 @@ def load_datastore(index_path, captions_path):
         captions = json.load(f)
     return index, captions
 
-def encode_single_image(image_path, model, feature_extractor, device):
-    """Encodes a single image into its feature representation."""
-    if not os.path.exists(image_path):
-        raise FileNotFoundError(f"Image not found: {image_path}")
-    
-    image = Image.open(image_path).convert("RGB")
+def encode_single_image(image_path, model, feature_extractor, device, image_root=None):
+    """Encodes a single image into its feature representation.
+
+    Args:
+        image_path: Local file path or relative path (when image_root is provided).
+        image_root: Optional ImageRoot instance for GCS or local access.
+    """
+    if image_root is not None:
+        image = image_root.open_image(image_path).convert("RGB")
+    else:
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image not found: {image_path}")
+        image = Image.open(image_path).convert("RGB")
     image_input = feature_extractor(images=[image], return_tensors='pt').pixel_values.to(device)
     
     with torch.no_grad():
@@ -76,16 +83,21 @@ def retrieve_info_for_image(index, image_embed, k=7):
     
     return I[0]  # Return the indices of the nearest neighbors
 
-def get_retrieved_info_for_image(image_path, index_path, captions_path, k=7):
-    """Get the retrieved information for a given image."""
+def get_retrieved_info_for_image(image_path, index_path, captions_path, k=7, image_root=None):
+    """Get the retrieved information for a given image.
+
+    Args:
+        image_path: Local file path or relative path (when image_root is provided).
+        image_root: Optional ImageRoot instance for GCS or local access.
+    """
     # Load the datastore (index and captions)
 
     index, captions = load_datastore(index_path, captions_path)
 
     model, feature_extractor, device = load_clip_model()
-    
+
     # Encode the new image
-    image_embed = encode_single_image(image_path, model, feature_extractor, device)
+    image_embed = encode_single_image(image_path, model, feature_extractor, device, image_root=image_root)
     
     # Retrieve the nearest neighbors
     neighbor_indices = retrieve_info_for_image(index, image_embed, k)

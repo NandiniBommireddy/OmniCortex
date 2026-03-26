@@ -12,3 +12,8 @@ __pycache__/
 .DS_Store
 .venv-radgraph
 .venv
+
+
+# Agents
+.firecrawl
+.prompts

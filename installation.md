@@ -23,39 +23,57 @@ python -m pip install faiss-gpu
 or
 python -m pip install faiss-cpu
 
+python -m pip install google-cloud-storage
 
 
-<!-- Image -->
-Download the following from mimic-cxr-jpg
-- IMAGE_FILENAMES
-- mimic-cxr-2.0.0-metadata.csv.gz
-- mimic-cxr-2.0.0-split.csv.gz
+<!-- Image data — GCS bucket -->
+Images are stored in GCS bucket: `gs://mimic-cxr-jpg-2.1.0.physionet.org/files/`
 
-Download the following from mimic-cxr
-- cxr-study-list.csv.gz
-
-To donwload images
+Authenticate with GCS:
 ```shell
-cd physionet.org
-
-head -n 507 mimic-cxr-jpg/2.1.0/IMAGE_FILENAMES | wget -r -N -c -np -nH --cut-dirs=1 --user minh160302 --ask-password -i - --base=https://physionet.org/files/mimic-cxr-jpg/2.1.0/
+gcloud auth application-default login
 ```
 
-To download full reports
+Download metadata CSVs (still needed locally):
+- mimic-cxr-2.0.0-metadata.csv.gz
+- mimic-cxr-2.0.0-split.csv.gz
+- cxr-study-list.csv.gz
+
+For Modal, create a secret from your gcloud credentials:
 ```shell
-gzip -dc mimic-cxr/2.1.0/cxr-study-list.csv.gz | awk -F',' 'NR>1 && NR<=508 {gsub(/\r/,"",$3); print $3}' | wget -r -N -c -np -nH --cut-dirs=1 --user minh160302 --ask-password -i - --base=https://physionet.org/files/mimic-cxr/2.1.0/
- ```
+modal secret create gcs-mimic-cxr \
+  GOOGLE_CREDENTIALS="$(cat ~/.config/gcloud/application_default_credentials.json)" \
+  GOOGLE_PROJECT="$(gcloud config get-value project)"
+```
+
+To update the secret (e.g. after refreshing gcloud credentials), delete and recreate:
+```shell
+modal secret delete gcs-mimic-cxr
+modal secret create gcs-mimic-cxr \
+  GOOGLE_CREDENTIALS="$(cat ~/.config/gcloud/application_default_credentials.json)" \
+  GOOGLE_PROJECT="$(gcloud config get-value project)"
+```
 
 
 <!-- Run -->
-Extract RadGraph triplets. Expected output includes: MIMIC-NLE/mimic-nle/mimic-nle-dev.json
+Extract RadGraph triplets. Expected output includes:
+- tmp/demo/mimic-nle-train/dev/test-radgraph.json
+
 ```shell
+# .venv-radgraph/bin/python scripts/extract_radgraph_triplets.py \
+# --input MIMIC-NLE/mimic-nle/mimic-nle-train.json \
+# --output tmp/demo/mimic-nle-train-radgraph.json \
+# --triplets-json tmp/demo/train-triplets-map.json \
+# --model-type modern-radgraph-xl \
+# --batch-size 4
+
 .venv-radgraph/bin/python scripts/extract_radgraph_triplets.py \
---input MIMIC-NLE/mimic-nle/mimic-nle-train.json \
---output tmp/demo/mimic-nle-train-radgraph.json \
---triplets-json tmp/demo/train-triplets-map.json \
+--input-dir MIMIC-NLE/mimic-nle \
+--output-dir tmp/demo \
 --model-type modern-radgraph-xl \
---batch-size 4
+--batch-size 4 \
+--num-workers 4 \
+--reports-root physionet.org/mimic-cxr/2.1.0/files
 ```
 
 
@@ -64,11 +82,13 @@ Expected outputs:
 - tmp/demo/datastore/retrieved_triplets.json
 - tmp/demo/datastore/kg_nle_index
 - tmp/demo/datastore/kg_nle_index_captions.json
+
+on local MacOS, this takes ~2 hours
 ```shell
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false \
 .venv/bin/python scripts/build_demo_datastore.py \
---input tmp/demo/mimic-nle-train-radgraph.json \
---image-root physionet.org/mimic-cxr-jpg/2.1.0/files \
+--input tmp/demo/mimic-nle-(train|test)-radgraph.json \
+--image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
 --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
 --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
 --output-dir tmp/demo/datastore
@@ -76,15 +96,15 @@ OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 TOKENIZERS_PARALLELISM=false \
 
 
 
-Build LLaVA dataset JSON. Expected outputs: tmp/demo/mimic-nle-dev-kg-llava.json
+Build LLaVA dataset JSON. Expected outputs: tmp/demo/mimic-nle-(dev|test|train)-kg-llava.json
 ```shell
 .venv/bin/python scripts/build_demo_llava_json.py \
---input tmp/demo/mimic-nle-train-radgraph.json \
---retrieved-triplets tmp/demo/datastore/retrieved_triplets.json \
---image-root physionet.org/mimic-cxr-jpg/2.1.0/files \
+--input tmp/demo/mimic-nle-(train|test)-radgraph.json \
+--retrieved-triplets tmp/demo/(datastore|datastore_test)/retrieved_triplets.json \
+--image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
 --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
 --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
---output tmp/demo/mimic-nle-train-kg-llava.json
+--output tmp/demo/mimic-nle-(train|test)-kg-llava.json
 ```
 
 

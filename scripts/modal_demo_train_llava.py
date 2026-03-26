@@ -10,8 +10,11 @@ VOLUME_NAME = "kg-llava-demo-train"
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_LLAVA = ROOT / "models" / "LLaVA"
 LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava.json"
-LOCAL_IMAGES = ROOT / "physionet.org" / "mimic-cxr-jpg" / "2.1.0" / "files"
 LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_train"
+
+GCS_BUCKET = "mimic-cxr-jpg-2.1.0.physionet.org"
+GCS_PREFIX = "files/"
+GCS_SECRET_NAME = "gcs-mimic-cxr"
 
 REMOTE_ROOT = "/workspace"
 REMOTE_LLAVA = f"{REMOTE_ROOT}/LLaVA"
@@ -48,11 +51,63 @@ image = (
         "timm==0.6.13",
         "deepspeed==0.12.6",
         "ninja",
+        "google-cloud-storage",
     )
 )
 
 app = modal.App(APP_NAME, image=image)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+
+
+def _setup_gcs_credentials():
+    """Write GCS credentials from GOOGLE_CREDENTIALS env var to a file."""
+    creds = os.environ.get("GOOGLE_CREDENTIALS")
+    if not creds:
+        return
+    creds_path = "/tmp/gcs_credentials.json"
+    with open(creds_path, "w") as f:
+        f.write(creds)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+
+
+def _download_images_from_gcs(data_path, dest_dir, bucket_name, prefix):
+    """Download images referenced in the data JSON from GCS (parallel)."""
+    import json
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from google.cloud import storage
+
+    data = json.load(open(data_path))
+    rel_paths = sorted(set(row["image"] for row in data))
+
+    # Pre-create all destination directories
+    dirs = set(os.path.join(dest_dir, os.path.dirname(rp)) for rp in rel_paths)
+    for d in dirs:
+        os.makedirs(d, exist_ok=True)
+
+    to_download = [rp for rp in rel_paths if not os.path.exists(os.path.join(dest_dir, rp))]
+    print(f"[GCS] {len(to_download)} to download ({len(rel_paths) - len(to_download)} cached)")
+    if not to_download:
+        return
+
+    client = storage.Client(project="885253748539")
+    bucket = client.bucket(bucket_name)
+    lock = threading.Lock()
+    done = [0]
+
+    def download_one(rel_path):
+        bucket.blob(prefix + rel_path).download_to_filename(os.path.join(dest_dir, rel_path))
+        with lock:
+            done[0] += 1
+            if done[0] % 200 == 0:
+                print(f"[GCS]   {done[0]}/{len(to_download)}")
+
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        futures = [pool.submit(download_one, rp) for rp in to_download]
+        for f in as_completed(futures):
+            f.result()
+
+    print(f"[GCS] done — {len(to_download)} downloaded")
 
 
 def _write_bytes(local_path: Path, data: bytes) -> None:
@@ -68,9 +123,29 @@ def _volume_relative(remote_path: str) -> str:
     return remote_path
 
 
-@app.function(volumes={REMOTE_ROOT: volume}, timeout=60 * 60 * 4, gpu="A10G")
+@app.function(
+    volumes={REMOTE_ROOT: volume},
+    secrets=[modal.Secret.from_name(GCS_SECRET_NAME)],
+    timeout=60 * 60 * 4,
+    gpu="A10G",
+)
 def run_demo_train() -> list[str]:
     import subprocess
+
+    _setup_gcs_credentials()
+
+    # # --- Limit to 100 images for testing (remove for full run) ---
+    # import json
+    # MAX_TRAIN_IMAGES = 100
+    # data = json.load(open(REMOTE_DATA))
+    # if MAX_TRAIN_IMAGES and len(data) > MAX_TRAIN_IMAGES:
+    #     print(f"[LIMIT] slicing data from {len(data)} to {MAX_TRAIN_IMAGES} entries")
+    #     data = data[:MAX_TRAIN_IMAGES]
+    #     with open(REMOTE_DATA, "w") as handle:
+    #         json.dump(data, handle)
+    # # --- End limit ---
+
+    _download_images_from_gcs(REMOTE_DATA, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = REMOTE_LLAVA
@@ -142,7 +217,6 @@ def main():
     with volume.batch_upload(force=True) as batch:
         batch.put_directory(str(LOCAL_LLAVA), "LLaVA")
         batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava.json")
-        batch.put_directory(str(LOCAL_IMAGES), "images")
 
     remote_paths = run_demo_train.remote()
     fetched = fetch_train_outputs.remote(remote_paths)
