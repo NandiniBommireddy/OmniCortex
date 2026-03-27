@@ -16,7 +16,7 @@ OmniCortex/
 ├── physionet.org/           Downloaded PhysioNet data (reports, metadata CSVs)
 └── tmp/demo/                Pipeline outputs (datastore, LLaVA JSONs, eval results)
 ```
-```
+
 
 ## 0. Prerequisites
 
