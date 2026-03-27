@@ -104,11 +104,23 @@ def main():
     parser.add_argument("--metadata-csv-gz", required=True)
     parser.add_argument("--split-csv-gz", required=True)
     parser.add_argument("--output", required=True, help="Output JSON file path")
+    parser.add_argument("--chains-file", default=None, help="Multi-hop chains JSONL (from build_multihop_chains.py)")
+    parser.add_argument("--multihop", action="store_true", help="Use multi-hop prompt template")
     args = parser.parse_args()
 
     image_root = ImageRoot.create(args.image_root)
     image_by_study, split_by_image = load_metadata(args.metadata_csv_gz, args.split_csv_gz)
     retrieved_triplets = json.load(open(args.retrieved_triplets))
+
+    # Load multi-hop chains keyed by sentence_ID (img_id)
+    chains_by_id = {}
+    if args.chains_file:
+        with open(args.chains_file) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entry = json.loads(line)
+                    chains_by_id[entry["img_id"]] = entry.get("chains", [])
 
     output_rows = []
     seen = set()
@@ -152,11 +164,21 @@ def main():
                     all_triplets.append(t)
         kg_triplets = "; ".join(unique_preserve_order(all_triplets))
 
-        human_value = (
-            "<image>\n"
-            f"The image-specific triplets from the knowledge graph are: {kg_triplets}. "
-            f"And for the given image, {question}"
-        )
+        img_chains = chains_by_id.get(row["sentence_ID"], [])
+        if args.multihop and img_chains:
+            kg_chains = "; ".join(img_chains)
+            human_value = (
+                "<image>\n"
+                f"The image-specific triplets from the knowledge graph are: {kg_triplets}. "
+                f"The multi-hop reasoning chains are: {kg_chains}. "
+                f"And for the given image, {question}"
+            )
+        else:
+            human_value = (
+                "<image>\n"
+                f"The image-specific triplets from the knowledge graph are: {kg_triplets}. "
+                f"And for the given image, {question}"
+            )
 
         output_rows.append({
             "id": dicom_id,

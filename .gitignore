@@ -14,6 +14,16 @@ __pycache__/
 .venv
 
 
+# Claude
+CLAUDE.md
+
 # Agents
 .firecrawl
 .prompts
+
+
+# Knowledge graph data
+kg/data
+data
+
+# Experiments

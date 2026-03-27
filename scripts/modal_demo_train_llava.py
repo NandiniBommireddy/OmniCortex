@@ -9,7 +9,8 @@ VOLUME_NAME = "kg-llava-demo-train"
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_LLAVA = ROOT / "models" / "LLaVA"
-LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava.json"
+# LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava.json"
+LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava-multihop.json"
 LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_train"
 
 GCS_BUCKET = "mimic-cxr-jpg-2.1.0.physionet.org"
@@ -18,9 +19,11 @@ GCS_SECRET_NAME = "gcs-mimic-cxr"
 
 REMOTE_ROOT = "/workspace"
 REMOTE_LLAVA = f"{REMOTE_ROOT}/LLaVA"
-REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava.json"
+# REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava.json"
+REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava-multihop.json"
 REMOTE_IMAGES = f"{REMOTE_ROOT}/images"
-REMOTE_OUT = f"{REMOTE_ROOT}/outputs"
+# REMOTE_OUT = f"{REMOTE_ROOT}/outputs"
+REMOTE_OUT = f"{REMOTE_ROOT}/outputs-multihop"
 
 
 image = (
@@ -126,7 +129,7 @@ def _volume_relative(remote_path: str) -> str:
 @app.function(
     volumes={REMOTE_ROOT: volume},
     secrets=[modal.Secret.from_name(GCS_SECRET_NAME)],
-    timeout=60 * 60 * 4,
+    timeout=60 * 60 * 12,
     gpu="A10G",
 )
 def run_demo_train() -> list[str]:
@@ -216,7 +219,8 @@ def main():
 
     with volume.batch_upload(force=True) as batch:
         batch.put_directory(str(LOCAL_LLAVA), "LLaVA")
-        batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava.json")
+        # batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava.json")
+        batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava-multihop.json")
 
     remote_paths = run_demo_train.remote()
     fetched = fetch_train_outputs.remote(remote_paths)
