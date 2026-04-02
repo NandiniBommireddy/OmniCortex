@@ -83,7 +83,7 @@ def exact_match_batch(driver, entities: list[str]) -> dict[str, str]:
 # Stage 2: scispaCy CUI linking -> Neo4j
 # ---------------------------------------------------------------------------
 
-def cui_match(driver, entities: list[str]) -> dict[str, str]:
+def cui_match(driver, entities: list[str], spacy_model: str) -> dict[str, str]:
     """Use scispaCy UMLS linker to get CUIs, then look them up in Neo4j."""
     try:
         import spacy
@@ -93,8 +93,8 @@ def cui_match(driver, entities: list[str]) -> dict[str, str]:
         print("  [cui] scispacy not available, skipping CUI stage")
         return {}
 
-    print("  [cui] loading en_core_sci_lg + UMLS linker (this may take a minute)...")
-    nlp = spacy.load("en_core_sci_lg")
+    print(f"  [cui] loading {spacy_model} + UMLS linker (this may take a minute)...")
+    nlp = spacy.load(spacy_model)
     # Try both factory names across scispacy versions
     for factory_name in ("scispacy_linker", "entity_linker"):
         try:
@@ -238,6 +238,11 @@ def main():
         default="kg/data/subgraph/primekg_radiology_nodes.json",
         help="Radiology subgraph nodes JSON (restricts fuzzy matching to relevant nodes)",
     )
+    parser.add_argument(
+        "--spacy-model",
+        default="en_core_sci_lg",
+        help="spaCy/ scispaCy model to use for CUI linking (e.g., en_core_sci_lg, en_core_sci_scibert)",
+    )
     parser.add_argument("--neo4j-uri", default="bolt://localhost:7687")
     parser.add_argument("--neo4j-password", default="primekg123")
     parser.add_argument(
@@ -288,7 +293,7 @@ def main():
 
     # Stage 2: CUI linking
     print("Stage 2: scispaCy CUI linking...")
-    cui = cui_match(driver, remaining)
+    cui = cui_match(driver, remaining, args.spacy_model)
     stage2_count = len(cui)
     for ent, name in cui.items():
         result[ent] = name

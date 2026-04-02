@@ -195,6 +195,7 @@ mkdir -p data
   --input tmp/demo/mimic-nle-train-radgraph.json \
   --diagnosis-mapping kg/data/subgraph/diagnosis_node_mapping.json \
   --subgraph-nodes kg/data/subgraph/primekg_radiology_nodes.json \
+  --spacy-model en_core_sci_lg \
   --output data/entity_cui_map.json
 ```
 
@@ -206,6 +207,16 @@ mkdir -p data
   --entity-map data/entity_cui_map.json \
   --output data/radgraph-multihop.jsonl
 
+# (no hop)
+  .venv/bin/python scripts/build_demo_llava_json.py \
+  --input tmp/demo/mimic-nle-train-radgraph.json \
+  --retrieved-triplets tmp/demo/datastore/retrieved_triplets.json \
+  --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
+  --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
+  --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
+  --output tmp/demo/mimic-nle-train-kg-llava.json
+
+# (or 1-hop)
 .venv/bin/python scripts/build_demo_llava_json.py \
   --input tmp/demo/mimic-nle-train-radgraph.json \
   --retrieved-triplets tmp/demo/datastore/retrieved_triplets.json \
@@ -225,6 +236,16 @@ mkdir -p data
   --entity-map data/entity_cui_map.json \
   --output data/radgraph-multihop-test.jsonl
 
+# (no hop)
+.venv/bin/python scripts/build_demo_llava_json.py \
+  --input tmp/demo/mimic-nle-test-radgraph.json \
+  --retrieved-triplets tmp/demo/datastore_test/retrieved_triplets.json \
+  --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
+  --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
+  --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
+  --output tmp/demo/mimic-nle-test-kg-llava.json
+
+# (or 1 hop)
 .venv/bin/python scripts/build_demo_llava_json.py \
   --input tmp/demo/mimic-nle-test-radgraph.json \
   --retrieved-triplets tmp/demo/datastore_test/retrieved_triplets.json \
@@ -236,32 +257,157 @@ mkdir -p data
   --output tmp/demo/mimic-nle-test-kg-llava-multihop.json
 ```
 
-## 6. Train & Eval on Modal
+## 6. RadLex Multi-Hop Chain Pipeline (Alternative to PrimeKG)
 
-Toggle between baseline and multihop by editing the path constants at the top of each script (commented-out lines).
+Uses RadLex + RadLex `May_Cause` / `May_Be_Caused_By` edges instead of PrimeKG/Neo4j.
+Produces clinically grounded chains (e.g., `pneumonia --May_Cause--> crazy-paving sign`)
+without requiring Docker or a running Neo4j instance.
 
-For reference, the training settings of one epoch took 10h16m execution time on Modal when running on all MIMIC-CXR-JPG images.
+### 6a. Install dependencies
 
 ```shell
-# Train
-modal run scripts/modal_demo_train_llava.py
+.venv/bin/pip install owlready2
+```
 
-# Eval
+### 6b. Download ontologies
+
+Register for a free BioPortal API key at https://bioportal.bioontology.org/accounts/new
+
+```shell
+mkdir -p kg/data/radlex kg/data/gamuts
+.venv/bin/python scripts/download_ontologies.py --api-key YOUR_BIOPORTAL_KEY
+```
+
+Output: `kg/data/radlex/radlex.owl`, `kg/data/gamuts/gamuts.owl`
+
+Verify content (MVE gate — check that RadLex has useful May_Cause edges):
+
+```shell
+.venv/bin/python scripts/explore_radlex.py
+```
+
+### 6c. Build entity alignment map
+
+Output: `data/entity_radlex_map.json`
+
+```shell
+mkdir -p data
+.venv/bin/python scripts/build_entity_radlex_map.py \
+  --input tmp/demo/mimic-nle-train-radgraph.json \
+  --radlex-owl kg/data/radlex/radlex.owl \
+  --output data/entity_radlex_map.json
+```
+
+### 6d. Build chains + LLaVA JSON (train)
+
+```shell
+.venv/bin/python scripts/build_radlex_chains.py \
+  --input tmp/demo/mimic-nle-train-radgraph.json \
+  --entity-map data/entity_radlex_map.json \
+  --radlex-owl kg/data/radlex/radlex.owl \
+  --output data/radgraph-multihop-radlex.jsonl
+
+.venv/bin/python scripts/build_demo_llava_json.py \
+  --input tmp/demo/mimic-nle-train-radgraph.json \
+  --retrieved-triplets tmp/demo/datastore/retrieved_triplets.json \
+  --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
+  --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
+  --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
+  --chains-file data/radgraph-multihop-radlex.jsonl \
+  --multihop \
+  --output tmp/demo/mimic-nle-train-kg-llava-radlex.json
+```
+
+### 6e. Build chains + LLaVA JSON (test)
+
+```shell
+.venv/bin/python scripts/build_radlex_chains.py \
+  --input tmp/demo/mimic-nle-test-radgraph.json \
+  --entity-map data/entity_radlex_map.json \
+  --radlex-owl kg/data/radlex/radlex.owl \
+  --output data/radgraph-multihop-radlex-test.jsonl
+
+.venv/bin/python scripts/build_demo_llava_json.py \
+  --input tmp/demo/mimic-nle-test-radgraph.json \
+  --retrieved-triplets tmp/demo/datastore_test/retrieved_triplets.json \
+  --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
+  --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
+  --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
+  --chains-file data/radgraph-multihop-radlex-test.jsonl \
+  --multihop \
+  --output tmp/demo/mimic-nle-test-kg-llava-radlex.json
+```
+
+## 7. Train & Eval on Modal
+
+Toggle between conditions by editing the path constants at the top of each Modal script
+(commented-out lines show baseline ↔ multihop ↔ radlex variants).
+
+For reference, training 1 epoch on full MIMIC-CXR-JPG took 10h16m on Modal A10G.
+
+### 7a. PrimeKG multihop (current default in scripts)
+
+```shell
+# scripts/modal_demo_train_llava.py already points to mimic-nle-train-kg-llava-multihop.json
+modal run scripts/modal_demo_train_llava.py
 modal run scripts/modal_demo_eval_llava.py
 ```
 
-### Compute metrics (after eval)
+### 7b. RadLex condition
+
+Edit path constants in both Modal scripts (swap commented lines):
+- `LOCAL_DATA`  → `tmp/demo/mimic-nle-train-kg-llava-radlex.json`
+- `REMOTE_DATA` → `{REMOTE_ROOT}/data/mimic-nle-train-kg-llava-radlex.json`
+- `REMOTE_OUT`  → `{REMOTE_ROOT}/outputs-radlex`
+
+(test script: same pattern with `-test` suffix and `REMOTE_TRAIN_OUT`)
 
 ```shell
-.venv/bin/python scripts/eval_multihop_quality.py \
-  --answers tmp/demo/llava_modal_eval/demo_answers.jsonl \
-  --references tmp/demo/mimic-nle-test-kg-llava-multihop.json \
-  --output tmp/demo/eval_results.json
+modal run scripts/modal_demo_train_llava.py
+modal run scripts/modal_demo_eval_llava.py
 ```
 
-## 7. Cleanup
+### 7c. Compute metrics (after eval)
+
+**Single condition:**
+```shell
+.venv/bin/python scripts/eval_multihop_quality.py \
+  --answers experiments/demo_answers_radlex.jsonl \
+  --references tmp/demo/mimic-nle-test-kg-llava-radlex.json \
+  --output tmp/demo/eval_results_radlex.json \
+  --filter-correct-labels
+```
+
+**With LLM judge (rubric mode):**
+```shell
+.venv/bin/python scripts/eval_multihop_quality.py \
+  --answers experiments/demo_answers_radlex.jsonl \
+  --references tmp/demo/mimic-nle-test-kg-llava-radlex.json \
+  --output tmp/demo/eval_results_radlex.json \
+  --filter-correct-labels \
+  --llm-judge-model claude-3-haiku-20240307 \
+  --llm-judge-mode rubric \
+  --llm-judge-samples 50 \
+  --llm-judge-output experiments/eval_judge-radlex-rubric.jsonl
+```
+
+**Pairwise comparison (RadLex vs PrimeKG):**
+```shell
+.venv/bin/python scripts/eval_multihop_quality.py \
+  --answers experiments/demo_answers_radlex.jsonl \
+  --references tmp/demo/mimic-nle-test-kg-llava-radlex.json \
+  --output tmp/demo/eval_pairwise_radlex_vs_primekg.json \
+  --llm-judge-model claude-3-haiku-20240307 \
+  --llm-judge-mode pairwise \
+  --llm-judge-baseline experiments/demo_answers_one_hop.jsonl \
+  --llm-judge-samples 50 \
+  --llm-judge-output experiments/eval_judge-radlex-vs-primekg.jsonl
+```
+
+## 9. Cleanup
 
 ```shell
-make kg-neo4j-down         # Stop Neo4j
+make kg-neo4j-down         # Stop Neo4j (PrimeKG pipeline only)
 make kg-clean              # Remove PrimeKG data + Neo4j volumes
+# RadLex pipeline has no Docker services to clean up
 ```

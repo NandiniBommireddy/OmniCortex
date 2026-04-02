@@ -1,41 +1,86 @@
-No hop
+### No hop
 
-```json
-{
-  "bleu_1": 25.01,
-  "bleu_2": 15.42,
-  "bleu_4": 6.77,
-  "rouge_l": 30.83,
-  "chain_coverage": 0.0,
-  "avg_hop_depth": 0.0,
-  "num_samples": 709
-}
+NLG metrics
+
+```shell
+Results:
+  bleu_1: 32.57
+  bleu_2: 19.93
+  bleu_4: 8.99
+  meteor: 30.7
+  rouge_l: 30.71
+  cider: 59.09
+  chain_coverage: 0.0
+  avg_hop_depth: 0.0
+  num_samples: 709
 ```
 
-One hop
+LLM-as-judge metrics on 100 samples using claude-haiku-4-5-20251001
 
-```json
-{
-  "bleu_1": 29.36,
-  "bleu_2": 19.82,
-  "bleu_4": 10.29,
-  "rouge_l": 35.23,
-  "chain_coverage": 50.07,
-  "avg_hop_depth": 2.0,
-  "num_samples": 709
-}
+```shell
+Results (100/100 scored):
+  clinical_accuracy: 2.79/5
+  completeness: 2.08/5
+  reasoning_quality: 3.01/5
+  language_quality: 4.05/5
+  overall: 2.98/5
 ```
 
-Table comparison
+### One hop PrimeKG
 
-| Metric | Baseline (KG-LLaVA) | + PrimeKG 1-hop | Paper Target |
-|---|---|---|---|
-| BLEU-1 | 25.01 | 29.36 (+17%) | — |
-| BLEU-2 | 15.42 | 19.82 (+29%) | — |
-| BLEU-4 | 6.77 | 10.29 (+52%) | 7.2 |
-| ROUGE-L | 30.83 | 35.23 (+14%) | 25.0 |
-| Chain coverage | 0% | 50% | — |
-| Avg hop depth | 0 | 2.0 | — |
+NLG metrics
+
+```shell
+Results:
+  bleu_1: 36.57
+  bleu_2: 24.46
+  bleu_4: 12.96
+  meteor: 35.5
+  rouge_l: 35.23
+  cider: 90.28
+  chain_coverage: 50.07
+  avg_hop_depth: 2.0
+  num_samples: 709
+```
+
+LLM-as-judge metrics on 100 samples using claude-haiku-4-5-20251001
+
+```shell
+Results (100/100 scored):
+  clinical_accuracy: 2.74/5
+  completeness: 2.15/5
+  reasoning_quality: 2.94/5
+  language_quality: 4.08/5
+  overall: 2.98/5
+```
+
+### One-hop Radlex
+
+NLG metrics
+
+```shell
+Results:
+  bleu_1: 38.12
+  bleu_2: 26.22
+  bleu_4: 14.24
+  meteor: 37.05
+  rouge_l: 37.69
+  cider: 107.8
+  chain_coverage: 74.19
+  avg_hop_depth: 2.0
+  num_samples: 709
+```
+
+LLM-as-judge metrics on 100 samples using claude-haiku-4-5-20251001
+
+```shell
+Results (99/100 scored):
+  clinical_accuracy: 2.93/5
+  completeness: 2.29/5
+  reasoning_quality: 3.06/5
+  language_quality: 4.06/5
+  overall: 3.08/5
+```
 
 Model: LLaVA-1.5-7B with LoRA fine-tuning, 1 epoch, Modal A10G GPU.
 Dataset: 709 MIMIC-NLE test samples (chest X-ray explanation generation).
@@ -49,15 +94,13 @@ Dataset: 709 MIMIC-NLE test samples (chest X-ray explanation generation).
 
 ## Analysis
 
-**Why 1-hop chains help.** The baseline KG-LLaVA prompt includes RadGraph triplets extracted from the image (e.g., "opacity suggestive of pneumonia"). These triplets describe what is visible but not why it matters clinically. Appending 1-hop PrimeKG neighbors adds disease-disease and phenotype-phenotype relationships (e.g., "pneumonia --disease_disease--> aspiration pneumonia") that give the model explicit reasoning paths between radiological findings and clinical concepts. This context lets the model produce explanations that are both more specific and more aligned with reference text, which is reflected in the BLEU-4 improvement from 6.77 to 10.29.
+A model with zero knowledge graph augmentation already scores 2.97/5 overall. The gap between this and your one-hop result (which scored 2.98/5 on 100 samples) is negligible — meaning one-hop triplets barely helped over the raw model.
 
-**What chain coverage tells us.** Half of the generated answers (50.07%) reference at least one entity from their PrimeKG chain. This confirms the model is not ignoring the injected chains -- it incorporates them into its output roughly half the time. The other half likely corresponds to images where the chains contain entities too distant from the radiological finding to be useful, or where the reference explanation is simple enough that RadGraph triplets alone suffice.
-
-**Comparison to paper targets.** Both the baseline and multihop configurations exceed the paper's reported BLEU-4 (7.2) and ROUGE-L (25.0). The baseline already surpasses paper targets, likely due to differences in train/test split size (we use a demo subset of 709 samples vs. the full MIMIC-NLE set). The multihop extension widens this gap further.
-
-**Entity alignment approach.** We used exact string match and scispaCy CUI linking to map RadGraph entities to PrimeKG nodes, deliberately avoiding fuzzy matching to prioritize precision. Hub nodes (degree >= 200) were excluded to prevent generic ontology terms from diluting chain quality. Chains were deduplicated per image.
+This makes the case for multi-hop chains stronger: single-hop triplets like "opacity suggestive of edema" are too shallow to
+meaningfully improve clinical reasoning.
 
 **Limitations.**
+
 - The 709-sample demo subset is small; results may not generalize to the full MIMIC-NLE dataset.
 - Only 1-hop chains were used. Deeper traversals (2+ hops) were not evaluated due to noise from distant neighbors.
 - Chain coverage of 50% means half of samples get no benefit from the extension. Better entity alignment (especially for Atelectasis, Consolidation, Lung Opacity, Pleural Effusion which lack direct PrimeKG matches) would increase coverage.

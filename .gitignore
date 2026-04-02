@@ -27,3 +27,4 @@ kg/data
 data
 
 # Experiments
+experiments/**/*.jsonl

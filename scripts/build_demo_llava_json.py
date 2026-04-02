@@ -24,7 +24,7 @@ DIAGNOSIS_LIST = [
 
 CERTAINTY_LIST = ["negative", "uncertain", "positive"]
 
-QUESTION_TEMPLATE = "Which signs show that the patient has {pathologies}?"
+QUESTION_TEMPLATE = "Which signs show that the patient has {pathologies}? Use the knowledge graph context (if provided) to support your explanation."
 
 
 def read_jsonl(path):
