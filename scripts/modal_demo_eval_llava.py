@@ -11,13 +11,6 @@ VOLUME_NAME = "kg-llava-demo-train"
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_LLAVA = ROOT / "models" / "LLaVA"
 
-# LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-test-kg-llava.json"
-# LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-test-kg-llava-multihop.json"
-LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-test-kg-llava-radlex.json"
-
-# LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_eval"
-LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_eval_radlex"
-
 GCS_BUCKET = "mimic-cxr-jpg-2.1.0.physionet.org"
 GCS_PREFIX = "files/"
 GCS_SECRET_NAME = "gcs-mimic-cxr"
@@ -25,15 +18,6 @@ GCS_SECRET_NAME = "gcs-mimic-cxr"
 REMOTE_ROOT = "/workspace"
 REMOTE_LLAVA = f"{REMOTE_ROOT}/LLaVA"
 REMOTE_IMAGES = f"{REMOTE_ROOT}/images"
-
-# REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-test-kg-llava.json"
-# REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-test-kg-llava-multihop.json"
-REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-test-kg-llava-radlex.json"
-
-# REMOTE_TRAIN_OUT = f"{REMOTE_ROOT}/outputs"
-# REMOTE_TRAIN_OUT = f"{REMOTE_ROOT}/outputs-multihop"
-# REMOTE_TRAIN_OUT = f"{REMOTE_ROOT}/outputs-v2"
-REMOTE_TRAIN_OUT = f"{REMOTE_ROOT}/outputs-radlex"
 
 REMOTE_LORA_MODEL = f"{REMOTE_ROOT}/llava-lora-demo"
 REMOTE_QFILE = f"{REMOTE_ROOT}/eval/demo_questions.jsonl"
@@ -144,30 +128,20 @@ def _volume_relative(remote_path: str) -> str:
     timeout=60 * 60,
     gpu="A100",
 )
-def run_demo_eval() -> str:
+def run_demo_eval(remote_data: str, remote_train_out: str) -> str:
     import subprocess
     import shutil
 
     _setup_gcs_credentials()
 
-    # # --- Limit to 100 images for testing (set to None for full run) ---
-    # MAX_EVAL_IMAGES = 100
-    # data = json.load(open(REMOTE_DATA))
-    # if MAX_EVAL_IMAGES and len(data) > MAX_EVAL_IMAGES:
-    #     print(f"[LIMIT] slicing data from {len(data)} to {MAX_EVAL_IMAGES} entries")
-    #     data = data[:MAX_EVAL_IMAGES]
-    #     with open(REMOTE_DATA, "w") as handle:
-    #         json.dump(data, handle)
-    # # --- End limit ---
-
-    _download_images_from_gcs(REMOTE_DATA, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
+    _download_images_from_gcs(remote_data, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
 
     os.makedirs(os.path.dirname(REMOTE_QFILE), exist_ok=True)
     if os.path.exists(REMOTE_LORA_MODEL):
         shutil.rmtree(REMOTE_LORA_MODEL)
-    shutil.copytree(REMOTE_TRAIN_OUT, REMOTE_LORA_MODEL)
+    shutil.copytree(remote_train_out, REMOTE_LORA_MODEL)
 
-    data = json.load(open(REMOTE_DATA))
+    data = json.load(open(remote_data))
     with open(REMOTE_QFILE, "w") as handle:
         for idx, row in enumerate(data):
             prompt = row["conversations"][0]["value"]
@@ -207,17 +181,29 @@ def fetch_eval_output(remote_path: str) -> bytes:
 
 
 @app.local_entrypoint()
-def main():
-    LOCAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def main(variant: str = "radlex"):
+    """
+    Run evaluation for a given data variant.
+
+    Examples:
+        modal run scripts/modal_demo_eval_llava.py              # variant=radlex
+        modal run scripts/modal_demo_eval_llava.py --variant multihop
+        modal run scripts/modal_demo_eval_llava.py --variant ""   # base (no suffix)
+    """
+    suffix = f"-{variant}" if variant else ""
+    local_data = ROOT / "tmp" / "demo" / f"mimic-nle-test-kg-llava{suffix}.json"
+    local_output_dir = ROOT / "tmp" / "demo" / f"llava_modal_eval{suffix.replace('-', '_')}"
+    remote_data = f"{REMOTE_ROOT}/data/mimic-nle-test-kg-llava{suffix}.json"
+    remote_train_out = f"{REMOTE_ROOT}/outputs{suffix}"
+
+    local_output_dir.mkdir(parents=True, exist_ok=True)
 
     with volume.batch_upload(force=True) as batch:
         batch.put_directory(str(LOCAL_LLAVA), "LLaVA")
-        # batch.put_file(str(LOCAL_DATA), "data/mimic-nle-test-kg-llava.json")
-        # batch.put_file(str(LOCAL_DATA), "data/mimic-nle-test-kg-llava-multihop.json")
-        batch.put_file(str(LOCAL_DATA), "data/mimic-nle-test-kg-llava-radlex.json")
+        batch.put_file(str(local_data), _volume_relative(remote_data))
 
-    remote_path = run_demo_eval.remote()
+    remote_path = run_demo_eval.remote(remote_data, remote_train_out)
     data = fetch_eval_output.remote(remote_path)
-    target = LOCAL_OUTPUT_DIR / "demo_answers.jsonl"
+    target = local_output_dir / "demo_answers.jsonl"
     _write_bytes(target, data)
     print(f"downloaded demo_answers.jsonl -> {target}")

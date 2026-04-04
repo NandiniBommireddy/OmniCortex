@@ -257,11 +257,15 @@ mkdir -p data
   --output tmp/demo/mimic-nle-test-kg-llava-multihop.json
 ```
 
-## 6. RadLex Multi-Hop Chain Pipeline (Alternative to PrimeKG)
+## 6. RadLex Enriched Triplets Pipeline (Alternative to PrimeKG)
 
-Uses RadLex + RadLex `May_Cause` / `May_Be_Caused_By` edges instead of PrimeKG/Neo4j.
-Produces clinically grounded chains (e.g., `pneumonia --May_Cause--> crazy-paving sign`)
-without requiring Docker or a running Neo4j instance.
+Uses RadLex `May_Cause` edges to enrich RadGraph triplets inline — RadLex signs are
+appended directly to each triplet string rather than injected as a separate chains block.
+
+Before: `opacity suggestive of pneumonia`
+After:  `opacity suggestive of pneumonia (also presents as: crazy-paving sign, ground glass pattern)`
+
+No Docker or Neo4j required.
 
 ### 6a. Install dependencies
 
@@ -280,7 +284,7 @@ mkdir -p kg/data/radlex kg/data/gamuts
 
 Output: `kg/data/radlex/radlex.owl`, `kg/data/gamuts/gamuts.owl`
 
-Verify content (MVE gate — check that RadLex has useful May_Cause edges):
+Verify content (check that RadLex has useful May_Cause edges):
 
 ```shell
 .venv/bin/python scripts/explore_radlex.py
@@ -298,43 +302,31 @@ mkdir -p data
   --output data/entity_radlex_map.json
 ```
 
-### 6d. Build chains + LLaVA JSON (train)
+### 6d. Build enriched LLaVA JSON (train)
 
 ```shell
-.venv/bin/python scripts/build_radlex_chains.py \
-  --input tmp/demo/mimic-nle-train-radgraph.json \
-  --entity-map data/entity_radlex_map.json \
-  --radlex-owl kg/data/radlex/radlex.owl \
-  --output data/radgraph-multihop-radlex.jsonl
-
 .venv/bin/python scripts/build_demo_llava_json.py \
   --input tmp/demo/mimic-nle-train-radgraph.json \
   --retrieved-triplets tmp/demo/datastore/retrieved_triplets.json \
   --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
   --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
   --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
-  --chains-file data/radgraph-multihop-radlex.jsonl \
-  --multihop \
+  --entity-map data/entity_radlex_map.json \
+  --radlex-owl kg/data/radlex/radlex.owl \
   --output tmp/demo/mimic-nle-train-kg-llava-radlex.json
 ```
 
-### 6e. Build chains + LLaVA JSON (test)
+### 6e. Build enriched LLaVA JSON (test)
 
 ```shell
-.venv/bin/python scripts/build_radlex_chains.py \
-  --input tmp/demo/mimic-nle-test-radgraph.json \
-  --entity-map data/entity_radlex_map.json \
-  --radlex-owl kg/data/radlex/radlex.owl \
-  --output data/radgraph-multihop-radlex-test.jsonl
-
 .venv/bin/python scripts/build_demo_llava_json.py \
   --input tmp/demo/mimic-nle-test-radgraph.json \
   --retrieved-triplets tmp/demo/datastore_test/retrieved_triplets.json \
   --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
   --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
   --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
-  --chains-file data/radgraph-multihop-radlex-test.jsonl \
-  --multihop \
+  --entity-map data/entity_radlex_map.json \
+  --radlex-owl kg/data/radlex/radlex.owl \
   --output tmp/demo/mimic-nle-test-kg-llava-radlex.json
 ```
 
@@ -369,42 +361,29 @@ modal run scripts/modal_demo_eval_llava.py
 
 ### 7c. Compute metrics (after eval)
 
-**Single condition:**
+**NLG metrics (BLEU, METEOR, ROUGE-L, CIDEr):**
 ```shell
-.venv/bin/python scripts/eval_multihop_quality.py \
-  --answers experiments/demo_answers_radlex.jsonl \
+.venv/bin/python scripts/metrics.py \
+  --answers tmp/demo/llava_modal_eval_radlex/demo_answers.jsonl \
   --references tmp/demo/mimic-nle-test-kg-llava-radlex.json \
-  --output tmp/demo/eval_results_radlex.json \
-  --filter-correct-labels
+  --output tmp/demo/eval_results_radlex.json
 ```
 
-**With LLM judge (rubric mode):**
+**LLM-as-judge (Claude Haiku, 100 samples):**
+
+`--answers` and `--references` must point to outputs from the **same test JSON** — `question_id` in the answers file is the row index in the references file. Mismatched files will silently misalign samples.
+
+Each sample is scored by comparing the model's generated answer against the NLE ground truth written by a radiologist for that same image.
+
 ```shell
-.venv/bin/python scripts/eval_multihop_quality.py \
-  --answers experiments/demo_answers_radlex.jsonl \
+.venv/bin/python scripts/metrics_llm.py \
+  --answers tmp/demo/llava_modal_eval_radlex/demo_answers.jsonl \
   --references tmp/demo/mimic-nle-test-kg-llava-radlex.json \
-  --output tmp/demo/eval_results_radlex.json \
-  --filter-correct-labels \
-  --llm-judge-model claude-3-haiku-20240307 \
-  --llm-judge-mode rubric \
-  --llm-judge-samples 50 \
-  --llm-judge-output experiments/eval_judge-radlex-rubric.jsonl
+  --output tmp/demo/eval_results_llm_radlex.json \
+  --max-samples 100 --seed 42
 ```
 
-**Pairwise comparison (RadLex vs PrimeKG):**
-```shell
-.venv/bin/python scripts/eval_multihop_quality.py \
-  --answers experiments/demo_answers_radlex.jsonl \
-  --references tmp/demo/mimic-nle-test-kg-llava-radlex.json \
-  --output tmp/demo/eval_pairwise_radlex_vs_primekg.json \
-  --llm-judge-model claude-3-haiku-20240307 \
-  --llm-judge-mode pairwise \
-  --llm-judge-baseline experiments/demo_answers_one_hop.jsonl \
-  --llm-judge-samples 50 \
-  --llm-judge-output experiments/eval_judge-radlex-vs-primekg.jsonl
-```
-
-## 9. Cleanup
+## 8. Cleanup
 
 ```shell
 make kg-neo4j-down         # Stop Neo4j (PrimeKG pipeline only)

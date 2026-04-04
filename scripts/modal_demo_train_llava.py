@@ -10,14 +10,6 @@ VOLUME_NAME = "kg-llava-demo-train"
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_LLAVA = ROOT / "models" / "LLaVA"
 
-# LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava.json"
-LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava-multihop.json"
-# LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava-radlex.json"
-
-# LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_train"
-LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_train_multihop"
-# LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_train_radlex"
-
 GCS_BUCKET = "mimic-cxr-jpg-2.1.0.physionet.org"
 GCS_PREFIX = "files/"
 GCS_SECRET_NAME = "gcs-mimic-cxr"
@@ -25,15 +17,6 @@ GCS_SECRET_NAME = "gcs-mimic-cxr"
 REMOTE_ROOT = "/workspace"
 REMOTE_LLAVA = f"{REMOTE_ROOT}/LLaVA"
 REMOTE_IMAGES = f"{REMOTE_ROOT}/images"
-
-# REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava.json"
-REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava-multihop.json"
-# REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava-radlex.json"
-
-# REMOTE_OUT = f"{REMOTE_ROOT}/outputs"
-REMOTE_OUT = f"{REMOTE_ROOT}/outputs-multihop"
-# REMOTE_OUT = f"{REMOTE_ROOT}/outputs-v2"
-# REMOTE_OUT = f"{REMOTE_ROOT}/outputs-radlex"
 
 
 image = (
@@ -142,12 +125,12 @@ def _volume_relative(remote_path: str) -> str:
     timeout=60 * 60 * 12,
     gpu="A100-40GB"
 )
-def run_demo_train() -> list[str]:
+def run_demo_train(remote_data: str, remote_out: str) -> list[str]:
     import subprocess
 
     _setup_gcs_credentials()
 
-    _download_images_from_gcs(REMOTE_DATA, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
+    _download_images_from_gcs(remote_data, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = REMOTE_LLAVA
@@ -162,7 +145,7 @@ def run_demo_train() -> list[str]:
         "--mm_projector_lr", "2e-5",
         "--model_name_or_path", "liuhaotian/llava-v1.5-7b",
         "--version", "v1",
-        "--data_path", REMOTE_DATA,
+        "--data_path", remote_data,
         "--image_folder", REMOTE_IMAGES,
         "--vision_tower", "openai/clip-vit-large-patch14-336",
         "--mm_projector_type", "mlp2x_gelu",
@@ -172,7 +155,7 @@ def run_demo_train() -> list[str]:
         "--image_aspect_ratio", "pad",
         "--group_by_modality_length", "True",
         "--bf16", "True",
-        "--output_dir", REMOTE_OUT,
+        "--output_dir", remote_out,
         "--num_train_epochs", "1",
         "--per_device_train_batch_size", "1",
         "--per_device_eval_batch_size", "1",
@@ -195,7 +178,7 @@ def run_demo_train() -> list[str]:
     ]
     subprocess.run(cmd, check=True, env=env)
     volume.commit()
-    return [REMOTE_OUT]
+    return [remote_out]
 
 
 @app.function(volumes={REMOTE_ROOT: volume}, timeout=60 * 5)
@@ -213,18 +196,30 @@ def fetch_train_outputs(remote_paths: list[str]) -> dict[str, bytes]:
 
 
 @app.local_entrypoint()
-def main():
-    LOCAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def main(variant: str = "radlex"):
+    """
+    Run training for a given data variant.
+
+    Examples:
+        modal run scripts/modal_demo_train_llava.py              # variant=radlex
+        modal run scripts/modal_demo_train_llava.py --variant multihop
+        modal run scripts/modal_demo_train_llava.py --variant ""   # base (no suffix)
+    """
+    suffix = f"-{variant}" if variant else ""
+    local_data = ROOT / "tmp" / "demo" / f"mimic-nle-train-kg-llava{suffix}.json"
+    local_output_dir = ROOT / "tmp" / "demo" / f"llava_modal_train{suffix.replace('-', '_')}"
+    remote_data = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava{suffix}.json"
+    remote_out = f"{REMOTE_ROOT}/outputs{suffix}"
+
+    local_output_dir.mkdir(parents=True, exist_ok=True)
 
     with volume.batch_upload(force=True) as batch:
         batch.put_directory(str(LOCAL_LLAVA), "LLaVA")
-        # batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava-multihop.json")
-        # batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava.json")
-        batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava-radlex.json")
+        batch.put_file(str(local_data), _volume_relative(remote_data))
 
-    remote_paths = run_demo_train.remote()
+    remote_paths = run_demo_train.remote(remote_data, remote_out)
     fetched = fetch_train_outputs.remote(remote_paths)
     for name, data in fetched.items():
-        target = LOCAL_OUTPUT_DIR / name
+        target = local_output_dir / name
         _write_bytes(target, data)
         print(f"downloaded {name} -> {target}")

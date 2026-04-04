@@ -24,7 +24,7 @@ DIAGNOSIS_LIST = [
 
 CERTAINTY_LIST = ["negative", "uncertain", "positive"]
 
-QUESTION_TEMPLATE = "Which signs show that the patient has {pathologies}? Use the knowledge graph context (if provided) to support your explanation."
+QUESTION_TEMPLATE = "Which signs show that the patient has {pathologies}?"
 
 
 def read_jsonl(path):
@@ -106,11 +106,61 @@ def main():
     parser.add_argument("--output", required=True, help="Output JSON file path")
     parser.add_argument("--chains-file", default=None, help="Multi-hop chains JSONL (from build_multihop_chains.py)")
     parser.add_argument("--multihop", action="store_true", help="Use multi-hop prompt template")
+    parser.add_argument("--entity-map", default=None, help="RadLex entity map JSON for triplet enrichment")
+    parser.add_argument("--radlex-owl", default=None, help="RadLex OWL file for triplet enrichment")
     args = parser.parse_args()
 
     image_root = ImageRoot.create(args.image_root)
     image_by_study, split_by_image = load_metadata(args.metadata_csv_gz, args.split_csv_gz)
     retrieved_triplets = json.load(open(args.retrieved_triplets))
+
+    # Load RadLex enrichment resources if provided
+    radlex_entity_map = {}
+    radlex_signs_cache = {}
+    radlex_label_index = {}
+    if args.entity_map and args.radlex_owl:
+        from owlready2 import get_ontology
+        radlex_entity_map = json.load(open(args.entity_map))
+        _owl = get_ontology(f"file://{Path(args.radlex_owl).resolve()}").load()
+        for cls in _owl.classes():
+            labels = [str(l) for l in cls.label if getattr(l, "lang", None) in (None, "en")]
+            canonical = labels[0] if labels else cls.name
+            for lbl in labels:
+                radlex_label_index.setdefault(lbl.lower(), (cls, canonical))
+        print(f"RadLex loaded: {len(radlex_label_index)} labels")
+
+    def get_radlex_signs(entity_text: str) -> list[str]:
+        radlex_label = radlex_entity_map.get(entity_text.lower())
+        if not radlex_label:
+            return []
+        if radlex_label in radlex_signs_cache:
+            return radlex_signs_cache[radlex_label]
+        cls_hit = radlex_label_index.get(radlex_label.lower())
+        if not cls_hit:
+            radlex_signs_cache[radlex_label] = []
+            return []
+        cls, _ = cls_hit
+        signs = []
+        for prop in cls.namespace.ontology.object_properties():
+            if prop.name in ("May_Cause", "may_cause"):
+                for subj, obj in prop.get_relations():
+                    if subj == cls:
+                        for lbl in obj.label:
+                            if getattr(lbl, "lang", None) in (None, "en"):
+                                signs.append(str(lbl))
+                                break
+                        if len(signs) >= 5:
+                            break
+        radlex_signs_cache[radlex_label] = signs
+        return signs
+
+    def enrich_triplet(t: str) -> str:
+        sep = " suggestive of "
+        if sep not in t or not radlex_entity_map:
+            return t
+        obj = t[t.index(sep) + len(sep):].strip()
+        signs = get_radlex_signs(obj)
+        return f"{t} (also presents as: {', '.join(signs)})" if signs else t
 
     # Load multi-hop chains keyed by sentence_ID (img_id)
     chains_by_id = {}
@@ -161,7 +211,7 @@ def main():
             for t in block.split(";"):
                 t = t.strip()
                 if t:
-                    all_triplets.append(t)
+                    all_triplets.append(enrich_triplet(t))
         kg_triplets = "; ".join(unique_preserve_order(all_triplets))
 
         img_chains = chains_by_id.get(row["sentence_ID"], [])

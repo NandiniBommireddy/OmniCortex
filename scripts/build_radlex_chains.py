@@ -5,9 +5,9 @@ For each image's RadGraph triplets, maps entity objects to RadLex concepts
 using the entity radlex map, then traverses May_Cause / May_Be_Caused_By
 edges from RadLex to build chains.
 
-Chain format (same as PrimeKG pipeline, compatible with build_demo_llava_json.py):
-    "opacity --suggestive_of--> pneumonia --May_Cause--> crazy-paving sign"
-    "blunting --suggestive_of--> pleural effusion --May_Be_Caused_By-- fissure sign"
+Chain format (natural language):
+    "opacity suggests pneumonia, which may cause crazy-paving sign"
+    "blunting suggests pleural effusion, which may be caused by fissure sign"
 
 Usage:
     python scripts/build_radlex_chains.py \
@@ -107,7 +107,13 @@ def get_neighbors(cls_name: str, label_index: dict, cache: dict) -> list[dict]:
 
 def build_chain_string(subj: str, rel: str, obj: str, row: dict) -> str:
     """Build chain string from RadGraph triplet + RadLex neighbor."""
-    return f"{subj} --{rel}--> {obj} --{row['edge']}--> {row['neighbor']}"
+    edge = row["edge"]
+    neighbor = row["neighbor"]
+    if edge in ("May_Cause", "may_cause"):
+        return f"{obj} may present with {neighbor}"
+    elif edge in ("May_Be_Caused_By", "may_be_caused_by"):
+        return f"{obj} may be indicated by {neighbor}"
+    return f"{subj} --{rel}--> {obj} --{edge}--> {neighbor}"
 
 
 def main():

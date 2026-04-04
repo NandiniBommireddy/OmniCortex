@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Compute evaluation metrics for multihop KG-LLaVA outputs.
 
-Metrics: BLEU-1/2/4, METEOR, ROUGE-L, CIDEr, chain coverage, avg hop depth.
+Metrics: BLEU-1/2/4, METEOR, ROUGE-L, CIDEr, chain coverage, avg hop depth,
+         entity recall, hallucination rate.
 
 Usage:
     python scripts/metrics.py \
@@ -124,6 +125,50 @@ def compute_chain_coverage(hypotheses: list[str], chains: list[list[str]]) -> fl
     return covered / len(hypotheses)
 
 
+# Clinical entity vocabulary: 10 MIMIC-NLE diagnoses + common radiological findings
+CLINICAL_ENTITIES = [
+    # MIMIC-NLE diagnoses
+    "atelectasis", "consolidation", "edema", "enlarged cardiomediastinum",
+    "lung lesion", "lung opacity", "pleural effusion", "pleural other",
+    "pneumonia", "pneumothorax",
+    # Common radiological findings
+    "opacity", "effusion", "infiltrate", "haziness", "fluid", "congestion",
+    "cardiomegaly", "blunting", "thickening", "nodule", "mass", "interstitial",
+    "airspace", "vascular", "markings", "lucency", "density", "infiltration",
+]
+
+
+def extract_entities(text: str) -> set[str]:
+    """Extract clinical entities present in text via substring matching."""
+    text_lower = text.lower()
+    return {e for e in CLINICAL_ENTITIES if e in text_lower}
+
+
+def compute_entity_recall(hypotheses: list[str], references: list[str]) -> float:
+    """Avg fraction of reference entities that appear in the hypothesis."""
+    scores = []
+    for hyp, ref in zip(hypotheses, references):
+        ref_entities = extract_entities(ref)
+        if not ref_entities:
+            continue
+        found = ref_entities & extract_entities(hyp)
+        scores.append(len(found) / len(ref_entities))
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def compute_hallucination_rate(hypotheses: list[str], references: list[str]) -> float:
+    """Avg fraction of hypothesis entities NOT present in the reference."""
+    scores = []
+    for hyp, ref in zip(hypotheses, references):
+        hyp_entities = extract_entities(hyp)
+        if not hyp_entities:
+            continue
+        ref_entities = extract_entities(ref)
+        hallucinated = hyp_entities - ref_entities
+        scores.append(len(hallucinated) / len(hyp_entities))
+    return sum(scores) / len(scores) if scores else 0.0
+
+
 def compute_avg_hop_depth(chains: list[list[str]]) -> float:
     """Average number of hops across all chains (arrows per chain)."""
     total_hops = 0
@@ -165,6 +210,8 @@ def main():
     cider = compute_cider(hypotheses, references)
     chain_cov = compute_chain_coverage(hypotheses, chains)
     avg_depth = compute_avg_hop_depth(chains)
+    entity_recall = compute_entity_recall(hypotheses, references)
+    hallucination_rate = compute_hallucination_rate(hypotheses, references)
 
     results = {
         "bleu_1": round(bleu1 * 100, 2),
@@ -175,6 +222,8 @@ def main():
         "cider": round(cider * 100, 2),
         "chain_coverage": round(chain_cov * 100, 2),
         "avg_hop_depth": round(avg_depth, 2),
+        "entity_recall": round(entity_recall * 100, 2),
+        "hallucination_rate": round(hallucination_rate * 100, 2),
         "num_samples": num_samples,
     }
 
