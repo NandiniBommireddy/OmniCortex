@@ -17,7 +17,6 @@ OmniCortex/
 └── tmp/demo/                Pipeline outputs (datastore, LLaVA JSONs, eval results)
 ```
 
-
 ## 0. Prerequisites
 
 - **PhysioNet** account with signed DUA for MIMIC-CXR-JPG v2.1.0 and MIMIC-NLE
@@ -58,7 +57,7 @@ make install
 ## 2. Data
 
 Images are stored in GCS (Google Cloud Storage) bucket: `gs://mimic-cxr-jpg-2.1.0.physionet.org/files/`.
-If you want to _actually_ install this project, please find all usages of `storage.Client(project="885253748539")` 
+If you want to _actually_ install this project, please find all usages of `storage.Client(project="885253748539")`
 and replace with your Google Cloud Project ID.
 
 ```shell
@@ -82,6 +81,7 @@ wget -r -N -c -np --user <physionet_user> --ask-password \
 ```
 
 Expected paths:
+
 - `physionet.org/mimic-cxr/2.1.0/files/p1*/p*/s*.txt` (reports)
 - `physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz`
 - `physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz`
@@ -174,7 +174,7 @@ Or steps 1-4 at once: `make kg-all`
 
 Use `make kg-verify` to confirm 129K nodes / 4M edges.
 
-## 5. Multi-Hop Chain Pipeline
+## 5. PrimeKG Chain Pipeline
 
 Requires Neo4j running with PrimeKG loaded (step 4) and subgraph exported.
 
@@ -202,75 +202,50 @@ mkdir -p data
 ### 5c. Build chains + LLaVA JSON (train)
 
 ```shell
-.venv/bin/python scripts/build_multihop_chains.py \
+.venv/bin/python scripts/build_primekg_chains.py \
   --input tmp/demo/mimic-nle-train-radgraph.json \
   --entity-map data/entity_cui_map.json \
-  --output data/radgraph-multihop.jsonl
+  --output data/radgraph-primekg.jsonl
 
-# (no hop)
-  .venv/bin/python scripts/build_demo_llava_json.py \
-  --input tmp/demo/mimic-nle-train-radgraph.json \
-  --retrieved-triplets tmp/demo/datastore/retrieved_triplets.json \
-  --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
-  --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
-  --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
-  --output tmp/demo/mimic-nle-train-kg-llava.json
-
-# (or 1-hop)
 .venv/bin/python scripts/build_demo_llava_json.py \
   --input tmp/demo/mimic-nle-train-radgraph.json \
   --retrieved-triplets tmp/demo/datastore/retrieved_triplets.json \
   --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
   --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
   --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
-  --chains-file data/radgraph-multihop.jsonl \
+  --chains-file data/radgraph-primekg.jsonl \
   --multihop \
-  --output tmp/demo/mimic-nle-train-kg-llava-multihop.json
+  --output tmp/demo/mimic-nle-train-kg-llava-primekg.json
 ```
 
 ### 5d. Build chains + LLaVA JSON (test)
 
 ```shell
-.venv/bin/python scripts/build_multihop_chains.py \
+.venv/bin/python scripts/build_primekg_chains.py \
   --input tmp/demo/mimic-nle-test-radgraph.json \
   --entity-map data/entity_cui_map.json \
-  --output data/radgraph-multihop-test.jsonl
+  --output data/radgraph-primekg-test.jsonl
 
-# (no hop)
 .venv/bin/python scripts/build_demo_llava_json.py \
   --input tmp/demo/mimic-nle-test-radgraph.json \
   --retrieved-triplets tmp/demo/datastore_test/retrieved_triplets.json \
   --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
   --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
   --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
-  --output tmp/demo/mimic-nle-test-kg-llava.json
-
-# (or 1 hop)
-.venv/bin/python scripts/build_demo_llava_json.py \
-  --input tmp/demo/mimic-nle-test-radgraph.json \
-  --retrieved-triplets tmp/demo/datastore_test/retrieved_triplets.json \
-  --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
-  --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
-  --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
-  --chains-file data/radgraph-multihop-test.jsonl \
+  --chains-file data/radgraph-primekg-test.jsonl \
   --multihop \
-  --output tmp/demo/mimic-nle-test-kg-llava-multihop.json
+  --output tmp/demo/mimic-nle-test-kg-llava-primekg.json
 ```
 
-## 6. RadLex Enriched Triplets Pipeline (Alternative to PrimeKG)
+## 6. RadLex Reasoning Chain Pipeline
 
-Uses RadLex `May_Cause` edges to enrich RadGraph triplets inline — RadLex signs are
-appended directly to each triplet string rather than injected as a separate chains block.
-
-Before: `opacity suggestive of pneumonia`
-After:  `opacity suggestive of pneumonia (also presents as: crazy-paving sign, ground glass pattern)`
-
-No Docker or Neo4j required.
+Uses RadLex `May_Cause` edges to build 1-hop reasoning chains, injected as a separate
+block in the prompt alongside the retrieved FAISS triplets. No Docker or Neo4j required.
 
 ### 6a. Install dependencies
 
 ```shell
-.venv/bin/pip install owlready2
+.venv/bin/pip install owlready2 rapidfuzz
 ```
 
 ### 6b. Download ontologies
@@ -284,7 +259,7 @@ mkdir -p kg/data/radlex kg/data/gamuts
 
 Output: `kg/data/radlex/radlex.owl`, `kg/data/gamuts/gamuts.owl`
 
-Verify content (check that RadLex has useful May_Cause edges):
+Verify content:
 
 ```shell
 .venv/bin/python scripts/explore_radlex.py
@@ -302,85 +277,195 @@ mkdir -p data
   --output data/entity_radlex_map.json
 ```
 
-### 6d. Build enriched LLaVA JSON (train)
+### 6d. Build reasoning chains
+
+Output: `data/radgraph-multihop-radlex.jsonl`, `data/radgraph-multihop-radlex-test.jsonl`
 
 ```shell
+# Train
+.venv/bin/python scripts/build_radlex_chains.py \
+  --input tmp/demo/mimic-nle-train-radgraph.json \
+  --entity-map data/entity_radlex_map.json \
+  --radlex-owl kg/data/radlex/radlex.owl \
+  --output data/radgraph-multihop-radlex.jsonl
+
+# Test
+.venv/bin/python scripts/build_radlex_chains.py \
+  --input tmp/demo/mimic-nle-test-radgraph.json \
+  --entity-map data/entity_radlex_map.json \
+  --radlex-owl kg/data/radlex/radlex.owl \
+  --output data/radgraph-multihop-radlex-test.jsonl
+```
+
+### 6e. Build LLaVA JSON
+
+Output: `tmp/demo/mimic-nle-{train,test}-kg-llava-radlex.json`
+
+```shell
+# Train
 .venv/bin/python scripts/build_demo_llava_json.py \
   --input tmp/demo/mimic-nle-train-radgraph.json \
   --retrieved-triplets tmp/demo/datastore/retrieved_triplets.json \
   --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
   --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
   --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
-  --entity-map data/entity_radlex_map.json \
-  --radlex-owl kg/data/radlex/radlex.owl \
+  --chains-file data/radgraph-multihop-radlex.jsonl \
+  --multihop \
   --output tmp/demo/mimic-nle-train-kg-llava-radlex.json
-```
 
-### 6e. Build enriched LLaVA JSON (test)
-
-```shell
+# Test
 .venv/bin/python scripts/build_demo_llava_json.py \
   --input tmp/demo/mimic-nle-test-radgraph.json \
   --retrieved-triplets tmp/demo/datastore_test/retrieved_triplets.json \
   --image-root gs://mimic-cxr-jpg-2.1.0.physionet.org/files \
   --metadata-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-metadata.csv.gz \
   --split-csv-gz physionet.org/mimic-cxr-jpg/2.1.0/mimic-cxr-2.0.0-split.csv.gz \
-  --entity-map data/entity_radlex_map.json \
-  --radlex-owl kg/data/radlex/radlex.owl \
+  --chains-file data/radgraph-multihop-radlex-test.jsonl \
+  --multihop \
   --output tmp/demo/mimic-nle-test-kg-llava-radlex.json
 ```
 
 ## 7. Train & Eval on Modal
 
-Toggle between conditions by editing the path constants at the top of each Modal script
-(commented-out lines show baseline ↔ multihop ↔ radlex variants).
+Both Modal scripts accept `--variant` and `--model` CLI flags. Outputs are written to
+`tmp/demo/llava_modal_{train,eval}_{variant}_{model}/` locally and
+`outputs-{variant}_{model}/` on the Modal volume.
 
 For reference, training 1 epoch on full MIMIC-CXR-JPG took 10h16m on Modal A10G.
 
-### 7a. PrimeKG multihop (current default in scripts)
+Both scripts accept `--version` (train) and `--conv-mode` (eval) for non-default model families:
+
+| Model family                                 | `--version`        | `--conv-mode`      |
+| -------------------------------------------- | ------------------ | ------------------ |
+| LLaVA-1.5 / LLaVA-1.6 Vicuna (default)       | `v1`               | `llava_v1`         |
+| Mistral-based (LLaVA-Med, LLaVA-1.6-Mistral) | `mistral_instruct` | `mistral_instruct` |
+
+Example:
 
 ```shell
-# scripts/modal_demo_train_llava.py already points to mimic-nle-train-kg-llava-multihop.json
-modal run scripts/modal_demo_train_llava.py
-modal run scripts/modal_demo_eval_llava.py
+modal run --detach scripts/modal_demo_train_llava.py --variant radlex --model microsoft/llava-med-v1.5-mistral-7b --version mistral_instruct
+modal run --detach scripts/modal_demo_eval_llava.py --variant radlex --model microsoft/llava-med-v1.5-mistral-7b --conv-mode mistral_instruct
 ```
 
-### 7b. RadLex condition
-
-Edit path constants in both Modal scripts (swap commented lines):
-- `LOCAL_DATA`  → `tmp/demo/mimic-nle-train-kg-llava-radlex.json`
-- `REMOTE_DATA` → `{REMOTE_ROOT}/data/mimic-nle-train-kg-llava-radlex.json`
-- `REMOTE_OUT`  → `{REMOTE_ROOT}/outputs-radlex`
-
-(test script: same pattern with `-test` suffix and `REMOTE_TRAIN_OUT`)
+Use `--detach` to run in the background. Before retraining, wipe the old output dir on the volume:
 
 ```shell
-modal run scripts/modal_demo_train_llava.py
-modal run scripts/modal_demo_eval_llava.py
+modal volume rm kg-llava-demo-train outputs-radlex_llava-v1.6-vicuna-7b
+modal volume rm kg-llava-demo-train outputs-radlex_llava-v1.6-vicuna-13b
+```
+
+### 7a. Train — all 12 combinations (4 models × 3 variants)
+
+For `microsoft/llava-med-v1.5-mistral-7b`, add `--version mistral_instruct`.
+
+```shell
+# liuhaotian/llava-v1.5-7b
+modal run --detach scripts/modal_demo_train_llava.py --variant "" --model liuhaotian/llava-v1.5-7b
+modal run --detach scripts/modal_demo_train_llava.py --variant radlex --model liuhaotian/llava-v1.5-7b
+modal run --detach scripts/modal_demo_train_llava.py --variant primekg --model liuhaotian/llava-v1.5-7b
+
+# liuhaotian/llava-v1.6-vicuna-7b
+modal run --detach scripts/modal_demo_train_llava.py --variant "" --model liuhaotian/llava-v1.6-vicuna-7b
+modal run --detach scripts/modal_demo_train_llava.py --variant radlex --model liuhaotian/llava-v1.6-vicuna-7b
+modal run --detach scripts/modal_demo_train_llava.py --variant primekg --model liuhaotian/llava-v1.6-vicuna-7b
+
+# liuhaotian/llava-v1.6-vicuna-13b
+modal run --detach scripts/modal_demo_train_llava.py --variant "" --model liuhaotian/llava-v1.6-vicuna-13b
+modal run --detach scripts/modal_demo_train_llava.py --variant radlex --model liuhaotian/llava-v1.6-vicuna-13b
+modal run --detach scripts/modal_demo_train_llava.py --variant primekg --model liuhaotian/llava-v1.6-vicuna-13b
+
+# microsoft/llava-med-v1.5-mistral-7b
+modal run --detach scripts/modal_demo_train_llava.py --variant "" --model microsoft/llava-med-v1.5-mistral-7b --version mistral_instruct
+modal run --detach scripts/modal_demo_train_llava.py --variant radlex --model microsoft/llava-med-v1.5-mistral-7b --version mistral_instruct
+modal run --detach scripts/modal_demo_train_llava.py --variant primekg --model microsoft/llava-med-v1.5-mistral-7b --version mistral_instruct
+```
+
+### 7b. Eval — all 12 combinations
+
+```shell
+# liuhaotian/llava-v1.5-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant "" --model liuhaotian/llava-v1.5-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant radlex --model liuhaotian/llava-v1.5-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant primekg --model liuhaotian/llava-v1.5-7b
+
+# liuhaotian/llava-v1.6-vicuna-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant "" --model liuhaotian/llava-v1.6-vicuna-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant radlex --model liuhaotian/llava-v1.6-vicuna-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant primekg --model liuhaotian/llava-v1.6-vicuna-7b
+
+# liuhaotian/llava-v1.6-vicuna-13b
+modal run --detach scripts/modal_demo_eval_llava.py --variant "" --model liuhaotian/llava-v1.6-vicuna-13b
+modal run --detach scripts/modal_demo_eval_llava.py --variant radlex --model liuhaotian/llava-v1.6-vicuna-13b
+modal run --detach scripts/modal_demo_eval_llava.py --variant primekg --model liuhaotian/llava-v1.6-vicuna-13b
+
+# microsoft/llava-med-v1.5-mistral-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant "" --model microsoft/llava-med-v1.5-mistral-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant radlex --model microsoft/llava-med-v1.5-mistral-7b
+modal run --detach scripts/modal_demo_eval_llava.py --variant primekg --model microsoft/llava-med-v1.5-mistral-7b
 ```
 
 ### 7c. Compute metrics (after eval)
 
-**NLG metrics (BLEU, METEOR, ROUGE-L, CIDEr):**
+`--answers` and `--references` must use outputs from the **same test JSON** — `question_id` is the row index in the references file.
+
+For baseline (`variant=""`), the references file has no suffix: `mimic-nle-test-kg-llava.json`.
+
+**NLG + RadGraph metrics:**
+
 ```shell
-.venv/bin/python scripts/metrics.py \
-  --answers tmp/demo/llava_modal_eval_radlex/demo_answers.jsonl \
-  --references tmp/demo/mimic-nle-test-kg-llava-radlex.json \
-  --output tmp/demo/eval_results_radlex.json
+# llava-v1.5-7b
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval__llava-v1.5-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava.json --output tmp/demo/eval_results__llava-v1.5-7b.json
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval_radlex_llava-v1.5-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-radlex.json --output tmp/demo/eval_results_radlex_llava-v1.5-7b.json
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval_primekg_llava-v1.5-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-primekg.json --output tmp/demo/eval_results_primekg_llava-v1.5-7b.json
+
+# llava-v1.6-vicuna-7b
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval__llava-v1.6-vicuna-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava.json --output tmp/demo/eval_results__llava-v1.6-vicuna-7b.json
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval_radlex_llava-v1.6-vicuna-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-radlex.json --output tmp/demo/eval_results_radlex_llava-v1.6-vicuna-7b.json
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval_primekg_llava-v1.6-vicuna-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-primekg.json --output tmp/demo/eval_results_primekg_llava-v1.6-vicuna-7b.json
+
+# llava-v1.6-vicuna-13b
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval__llava-v1.6-vicuna-13b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava.json --output tmp/demo/eval_results__llava-v1.6-vicuna-13b.json
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval_radlex_llava-v1.6-vicuna-13b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-radlex.json --output tmp/demo/eval_results_radlex_llava-v1.6-vicuna-13b.json
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval_primekg_llava-v1.6-vicuna-13b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-primekg.json --output tmp/demo/eval_results_primekg_llava-v1.6-vicuna-13b.json
+
+# llava-med-v1.5-mistral-7b
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval__llava-med-v1.5-mistral-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava.json --output tmp/demo/eval_results__llava-med-v1.5-mistral-7b.json
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval_radlex_llava-med-v1.5-mistral-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-radlex.json --output tmp/demo/eval_results_radlex_llava-med-v1.5-mistral-7b.json
+.venv/bin/python scripts/metrics.py --answers tmp/demo/llava_modal_eval_primekg_llava-med-v1.5-mistral-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-primekg.json --output tmp/demo/eval_results_primekg_llava-med-v1.5-mistral-7b.json
 ```
 
-**LLM-as-judge (Claude Haiku, 100 samples):**
-
-`--answers` and `--references` must point to outputs from the **same test JSON** — `question_id` in the answers file is the row index in the references file. Mismatched files will silently misalign samples.
-
-Each sample is scored by comparing the model's generated answer against the NLE ground truth written by a radiologist for that same image.
+**LLM-as-judge (100 samples, Claude Haiku):**
 
 ```shell
-.venv/bin/python scripts/metrics_llm.py \
-  --answers tmp/demo/llava_modal_eval_radlex/demo_answers.jsonl \
-  --references tmp/demo/mimic-nle-test-kg-llava-radlex.json \
-  --output tmp/demo/eval_results_llm_radlex.json \
-  --max-samples 100 --seed 42
+# llava-v1.5-7b
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval__llava-v1.5-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava.json --output tmp/demo/eval_results_llm__llava-v1.5-7b.json --max-samples 100 --seed 42
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval_radlex_llava-v1.5-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-radlex.json --output tmp/demo/eval_results_llm_radlex_llava-v1.5-7b.json --max-samples 100 --seed 42
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval_primekg_llava-v1.5-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-primekg.json --output tmp/demo/eval_results_llm_primekg_llava-v1.5-7b.json --max-samples 100 --seed 42
+
+# llava-v1.6-vicuna-7b
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval__llava-v1.6-vicuna-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava.json --output tmp/demo/eval_results_llm__llava-v1.6-vicuna-7b.json --max-samples 100 --seed 42
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval_radlex_llava-v1.6-vicuna-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-radlex.json --output tmp/demo/eval_results_llm_radlex_llava-v1.6-vicuna-7b.json --max-samples 100 --seed 42
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval_primekg_llava-v1.6-vicuna-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-primekg.json --output tmp/demo/eval_results_llm_primekg_llava-v1.6-vicuna-7b.json --max-samples 100 --seed 42
+
+# llava-v1.6-vicuna-13b
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval__llava-v1.6-vicuna-13b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava.json --output tmp/demo/eval_results_llm__llava-v1.6-vicuna-13b.json --max-samples 100 --seed 42
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval_radlex_llava-v1.6-vicuna-13b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-radlex.json --output tmp/demo/eval_results_llm_radlex_llava-v1.6-vicuna-13b.json --max-samples 100 --seed 42
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval_primekg_llava-v1.6-vicuna-13b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-primekg.json --output tmp/demo/eval_results_llm_primekg_llava-v1.6-vicuna-13b.json --max-samples 100 --seed 42
+
+# llava-med-v1.5-mistral-7b
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval__llava-med-v1.5-mistral-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava.json --output tmp/demo/eval_results_llm__llava-med-v1.5-mistral-7b.json --max-samples 100 --seed 42
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval_radlex_llava-med-v1.5-mistral-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-radlex.json --output tmp/demo/eval_results_llm_radlex_llava-med-v1.5-mistral-7b.json --max-samples 100 --seed 42
+.venv/bin/python scripts/metrics_llm.py --answers tmp/demo/llava_modal_eval_primekg_llava-med-v1.5-mistral-7b/demo_answers.jsonl --references tmp/demo/mimic-nle-test-kg-llava-primekg.json --output tmp/demo/eval_results_llm_primekg_llava-med-v1.5-mistral-7b.json --max-samples 100 --seed 42
+```
+
+**RadGraph F1 (requires .venv-radgraph):**
+
+```shell
+# Pattern: replace {variant} and {model} accordingly
+.venv-radgraph/bin/python scripts/compute_radgraph_f1.py \
+  --answers tmp/demo/llava_modal_eval_{variant}_{model}/demo_answers.jsonl \
+  --references tmp/demo/mimic-nle-test-kg-llava-{variant}.json \
+  --output tmp/demo/radgraph_f1_{variant}_{model}.json
 ```
 
 ## 8. Cleanup

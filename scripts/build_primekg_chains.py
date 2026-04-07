@@ -68,12 +68,21 @@ def query_neighbors(session, node_name: str, cache: dict) -> list[dict]:
     return results
 
 
+RELATION_PHRASES = {
+    "suggestive_of": "suggests",
+    "disease_phenotype_positive": "may present with",
+    "disease_phenotype_negative": "is not associated with",
+    "disease_disease": "is related to",
+    "phenotype_phenotype": "is associated with",
+    "disease_protein": "involves",
+}
+
+
 def build_chain_string(subj, rel, obj, row):
-    """Build a chain string from the RadGraph triplet + Neo4j neighbor."""
-    return (
-        f"{subj} --{rel}--> {obj} "
-        f"--{row['edge']}--> {row['neighbor']}"
-    )
+    """Build a natural language chain from the RadGraph triplet + Neo4j neighbor."""
+    r1 = RELATION_PHRASES.get(rel, rel.replace("_", " "))
+    r2 = RELATION_PHRASES.get(row["edge"], row["edge"].replace("_", " "))
+    return f"{subj} {r1} {obj}, which {r2} {row['neighbor']}"
 
 
 def main():

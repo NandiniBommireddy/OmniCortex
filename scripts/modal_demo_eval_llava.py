@@ -128,7 +128,7 @@ def _volume_relative(remote_path: str) -> str:
     timeout=60 * 60,
     gpu="A100",
 )
-def run_demo_eval(remote_data: str, remote_train_out: str) -> str:
+def run_demo_eval(remote_data: str, remote_train_out: str, model: str = "liuhaotian/llava-v1.5-7b", conv_mode: str = "llava_v1") -> str:
     import subprocess
     import shutil
 
@@ -140,6 +140,26 @@ def run_demo_eval(remote_data: str, remote_train_out: str) -> str:
     if os.path.exists(REMOTE_LORA_MODEL):
         shutil.rmtree(REMOTE_LORA_MODEL)
     shutil.copytree(remote_train_out, REMOTE_LORA_MODEL)
+
+    # Use latest checkpoint subdir if model weights are nested there
+    import glob
+    checkpoints = sorted(glob.glob(f"{REMOTE_LORA_MODEL}/checkpoint-*"))
+    if checkpoints:
+        model_path = checkpoints[-1]
+        import torch as _torch
+        # Checkpoint dirs don't have config.json — copy it from the base model
+        ckpt_config = os.path.join(model_path, "config.json")
+        if not os.path.exists(ckpt_config):
+            from huggingface_hub import hf_hub_download
+            downloaded = hf_hub_download(repo_id=model, filename="config.json")
+            shutil.copy2(downloaded, ckpt_config)
+        # Checkpoint dirs don't have non_lora_trainables.bin — create empty stub
+        # so builder.py doesn't try to fetch it from HF Hub using a local path
+        non_lora_path = os.path.join(model_path, "non_lora_trainables.bin")
+        if not os.path.exists(non_lora_path):
+            _torch.save({}, non_lora_path)
+    else:
+        model_path = REMOTE_LORA_MODEL
 
     data = json.load(open(remote_data))
     with open(REMOTE_QFILE, "w") as handle:
@@ -162,14 +182,15 @@ def run_demo_eval(remote_data: str, remote_train_out: str) -> str:
         "python",
         "-m",
         "llava.eval.model_vqa_loader",
-        "--model-path", REMOTE_LORA_MODEL,
-        "--model-base", "liuhaotian/llava-v1.5-7b",
+        "--model-path", model_path,
+        "--model-base", model,
         "--question-file", REMOTE_QFILE,
         "--image-folder", REMOTE_IMAGES,
         "--answers-file", REMOTE_ANS,
         "--temperature", "0",
-        "--conv-mode", "llava_v1",
+        "--conv-mode", conv_mode,
     ]
+
     subprocess.run(cmd, check=True, env=env, cwd=REMOTE_LLAVA)
     volume.commit()
     return REMOTE_ANS
@@ -181,20 +202,22 @@ def fetch_eval_output(remote_path: str) -> bytes:
 
 
 @app.local_entrypoint()
-def main(variant: str = "radlex"):
+def main(variant: str = "radlex", model: str = "liuhaotian/llava-v1.5-7b", conv_mode: str = "llava_v1"):
     """
-    Run evaluation for a given data variant.
+    Run evaluation for a given data variant and base model.
 
     Examples:
-        modal run scripts/modal_demo_eval_llava.py              # variant=radlex
+        modal run scripts/modal_demo_eval_llava.py
         modal run scripts/modal_demo_eval_llava.py --variant multihop
+        modal run scripts/modal_demo_eval_llava.py --model liuhaotian/llava-v1.5-13b
         modal run scripts/modal_demo_eval_llava.py --variant ""   # base (no suffix)
     """
+    model_tag = model.split("/")[-1]
     suffix = f"-{variant}" if variant else ""
     local_data = ROOT / "tmp" / "demo" / f"mimic-nle-test-kg-llava{suffix}.json"
-    local_output_dir = ROOT / "tmp" / "demo" / f"llava_modal_eval{suffix.replace('-', '_')}"
+    local_output_dir = ROOT / "tmp" / "demo" / f"llava_modal_eval{suffix.replace('-', '_')}_{model_tag}"
     remote_data = f"{REMOTE_ROOT}/data/mimic-nle-test-kg-llava{suffix}.json"
-    remote_train_out = f"{REMOTE_ROOT}/outputs{suffix}"
+    remote_train_out = f"{REMOTE_ROOT}/outputs{suffix}_{model_tag}"
 
     local_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -202,7 +225,7 @@ def main(variant: str = "radlex"):
         batch.put_directory(str(LOCAL_LLAVA), "LLaVA")
         batch.put_file(str(local_data), _volume_relative(remote_data))
 
-    remote_path = run_demo_eval.remote(remote_data, remote_train_out)
+    remote_path = run_demo_eval.remote(remote_data, remote_train_out, model=model, conv_mode=conv_mode)
     data = fetch_eval_output.remote(remote_path)
     target = local_output_dir / "demo_answers.jsonl"
     _write_bytes(target, data)

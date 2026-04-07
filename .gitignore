@@ -28,3 +28,9 @@ data
 
 # Experiments
 experiments/**/*.jsonl
+tmp.json
+tmp1.json
+tmp2.json
+
+# Latex
+tex/**/*
