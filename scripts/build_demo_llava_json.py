@@ -2,7 +2,11 @@ import argparse
 import csv
 import gzip
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from gcs_images import ImageRoot
 
 
 DIAGNOSIS_LIST = [
@@ -59,10 +63,37 @@ def get_pathologies(img_labels):
 def choose_image(subject_id, study_id, image_root, image_by_study):
     for dicom_id in sorted(image_by_study.get((subject_id, study_id), [])):
         rel_path = f"p{subject_id[:2]}/p{subject_id}/s{study_id}/{dicom_id}.jpg"
-        abs_path = image_root / rel_path
-        if abs_path.exists():
+        if image_root.exists(rel_path):
             return dicom_id, rel_path
     return None, None
+
+
+def unique_preserve_order(items):
+    seen = set()
+    ordered = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            ordered.append(item)
+    return ordered
+
+
+def to_triplet_blocks(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = value.strip()
+        return [value] if value else []
+    if isinstance(value, list):
+        blocks = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text:
+                blocks.append(text)
+        return blocks
+    return []
 
 
 def main():
@@ -72,15 +103,20 @@ def main():
     parser.add_argument("--image-root", required=True, help="Root containing JPG files")
     parser.add_argument("--metadata-csv-gz", required=True)
     parser.add_argument("--split-csv-gz", required=True)
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--output", required=True, help="Output JSON file path")
     args = parser.parse_args()
 
-    image_root = Path(args.image_root)
+    image_root = ImageRoot.create(args.image_root)
     image_by_study, split_by_image = load_metadata(args.metadata_csv_gz, args.split_csv_gz)
     retrieved_triplets = json.load(open(args.retrieved_triplets))
 
     output_rows = []
     seen = set()
+    stats = {
+        "rows_with_retrieved_triplets": 0,
+        "rows_with_row_triplets_fallback": 0,
+        "rows_without_triplets": 0,
+    }
 
     for row in read_jsonl(args.input):
         subject_id = row["patient_ID"][1:]
@@ -97,29 +133,46 @@ def main():
         split = split_by_image.get((subject_id, study_id, dicom_id), "train")
         pathologies = get_pathologies(row["img_labels"])
         question = QUESTION_TEMPLATE.format(pathologies=pathologies)
-        kg_triplets = "; ".join(retrieved_triplets.get(dicom_id, []))
+        retrieved_blocks = to_triplet_blocks(retrieved_triplets.get(dicom_id))
+        row_blocks = to_triplet_blocks(row.get("triplets"))
+        if retrieved_blocks:
+            triplet_texts = retrieved_blocks
+            stats["rows_with_retrieved_triplets"] += 1
+        elif row_blocks:
+            triplet_texts = row_blocks
+            stats["rows_with_row_triplets_fallback"] += 1
+        else:
+            triplet_texts = []
+            stats["rows_without_triplets"] += 1
+        all_triplets = []
+        for block in triplet_texts:
+            for t in block.split(";"):
+                t = t.strip()
+                if t:
+                    all_triplets.append(t)
+        kg_triplets = "; ".join(unique_preserve_order(all_triplets))
 
-        output_rows.append(
-            {
-                "id": dicom_id,
-                "split": split,
-                "image": rel_path,
-                "conversations": [
-                    {
-                        "from": "human",
-                        "value": (
-                            "<image>\n"
-                            f"The image-specific triplets from the knowledge graph are: {kg_triplets}. "
-                            f"And for the given image, {question}"
-                        ),
-                    },
-                    {
-                        "from": "gpt",
-                        "value": row["nle"],
-                    },
-                ],
-            }
+        human_value = (
+            "<image>\n"
+            f"The image-specific triplets from the knowledge graph are: {kg_triplets}. "
+            f"And for the given image, {question}"
         )
+
+        output_rows.append({
+            "id": dicom_id,
+            "split": split,
+            "image": rel_path,
+            "conversations": [
+                {
+                    "from": "human",
+                    "value": human_value,
+                },
+                {
+                    "from": "gpt",
+                    "value": row["nle"],
+                },
+            ],
+        })
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,6 +180,12 @@ def main():
         json.dump(output_rows, handle, indent=2)
 
     print(f"wrote {len(output_rows)} records to {output_path}")
+    print(
+        "triplet source stats: "
+        f"retrieved_rows={stats['rows_with_retrieved_triplets']}, "
+        f"row_fallback_rows={stats['rows_with_row_triplets_fallback']}, "
+        f"empty_rows={stats['rows_without_triplets']}"
+    )
 
 
 if __name__ == "__main__":

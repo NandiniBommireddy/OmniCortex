@@ -2,6 +2,7 @@ import argparse
 import csv
 import gzip
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -10,6 +11,9 @@ import numpy as np
 import torch
 from medclip import MedCLIPModel, MedCLIPProcessor, MedCLIPVisionModelViT
 from PIL import Image, ImageFile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from gcs_images import ImageRoot
 
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -40,9 +44,9 @@ def load_metadata(metadata_csv_gz, split_csv_gz):
 def choose_dicom(subject_id, study_id, image_root, by_study):
     dicoms = sorted(by_study.get((subject_id, study_id), []))
     for dicom_id in dicoms:
-        image_path = image_root / f"p{subject_id[:2]}" / f"p{subject_id}" / f"s{study_id}" / f"{dicom_id}.jpg"
-        if image_path.exists():
-            return dicom_id, image_path
+        rel_path = f"p{subject_id[:2]}/p{subject_id}/s{study_id}/{dicom_id}.jpg"
+        if image_root.exists(rel_path):
+            return dicom_id, rel_path
     return None, None
 
 
@@ -51,16 +55,15 @@ def join_rows(rows, image_root, by_study, split_map):
     for row in rows:
         subject_id = row["patient_ID"][1:]
         study_id = row["report_ID"][1:]
-        dicom_id, image_path = choose_dicom(subject_id, study_id, image_root, by_study)
-        if image_path is None:
+        dicom_id, rel_path = choose_dicom(subject_id, study_id, image_root, by_study)
+        if rel_path is None:
             continue
 
         split = split_map.get((subject_id, study_id, dicom_id), "train")
-        image_rel_path = str(image_path.relative_to(image_root))
         merged = dict(row)
         merged["img_id"] = dicom_id
-        merged["img_path"] = str(image_path)
-        merged["image_rel_path"] = image_rel_path
+        merged["img_path"] = image_root.path_str(rel_path)
+        merged["image_rel_path"] = rel_path
         merged["split"] = split
         joined.append(merged)
     return joined
@@ -131,8 +134,11 @@ def encode_text_cpu(model, input_ids, attention_mask=None):
 
 
 def encode_captions(captions, model, device, processor):
+    total = len(captions)
     encoded = []
-    for caption in captions:
+    for i, caption in enumerate(captions):
+        if (i + 1) % 50 == 0 or i == 0 or (i + 1) == total:
+            print(f"  encoding caption {i + 1}/{total}")
         inputs = processor(text=[caption], return_tensors="pt", padding=True, truncation=True, max_length=77).to(device)
         with torch.no_grad():
             emb = encode_text_cpu(model, inputs["input_ids"], inputs.get("attention_mask")).cpu().numpy()
@@ -140,24 +146,31 @@ def encode_captions(captions, model, device, processor):
     return np.array(encoded)
 
 
-def encode_images(image_paths, model, processor, device):
+def encode_images(image_rel_paths, model, processor, device, image_root):
+    total = len(image_rel_paths)
     encoded = []
-    for image_path in image_paths:
-        image = Image.open(image_path).convert("RGB")
+    for i, rel_path in enumerate(image_rel_paths):
+        if (i + 1) % 50 == 0 or i == 0 or (i + 1) == total:
+            print(f"  encoding image {i + 1}/{total}")
+        image = image_root.open_image(rel_path).convert("RGB")
         inputs = processor(images=[image], return_tensors="pt").pixel_values.to(device)
+        # inputs = _MEDCLIP_IMG_TRANSFORM(image).unsqueeze(0).to(device)
         with torch.no_grad():
             emb = model.encode_image(pixel_values=inputs).cpu().numpy()
         encoded.append(emb[0])
     return np.array(encoded)
 
 
-def build_retrieval_outputs(records, model, processor, device):
+def build_retrieval_outputs(records, model, processor, device, image_root):
+    if not records:
+        return None, [], {}
+
     captions = ["; ".join(r["triplets"]) for r in records]
-    image_paths = [r["img_path"] for r in records]
+    image_rel_paths = [r["image_rel_path"] for r in records]
     image_ids = [r["img_id"] for r in records]
 
     caption_emb = encode_captions(captions, model, device, processor).astype(np.float32)
-    image_emb = encode_images(image_paths, model, processor, device).astype(np.float32)
+    image_emb = encode_images(image_rel_paths, model, processor, device, image_root).astype(np.float32)
 
     faiss.normalize_L2(caption_emb)
     index = faiss.IndexFlatIP(caption_emb.shape[1])
@@ -187,16 +200,21 @@ def main():
     parser.add_argument("--metadata-csv-gz", required=True)
     parser.add_argument("--split-csv-gz", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--max-images", type=int, default=None, help="Limit number of images processed (for testing)")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    image_root = ImageRoot.create(args.image_root)
+
     rows = list(read_jsonl(args.input))
     by_study, split_map = load_metadata(args.metadata_csv_gz, args.split_csv_gz)
-    joined_rows = join_rows(rows, Path(args.image_root), by_study, split_map)
+    joined_rows = join_rows(rows, image_root, by_study, split_map)
     aggregated = aggregate_triplets_by_image(joined_rows)
     aggregated = [row for row in aggregated if row["triplets"]]
+    if args.max_images is not None:
+        aggregated = aggregated[: args.max_images]
 
     joined_path = output_dir / "demo_annotations_joined.json"
     with open(joined_path, "w") as handle:
@@ -206,10 +224,13 @@ def main():
     with open(aggregated_path, "w") as handle:
         json.dump(aggregated, handle, indent=2)
 
-    model, processor, device = load_clip_model()
-    index, captions, retrieved = build_retrieval_outputs(aggregated, model, processor, device)
+    if aggregated:
+        model, processor, device = load_clip_model()
+        index, captions, retrieved = build_retrieval_outputs(aggregated, model, processor, device, image_root)
+        faiss.write_index(index, str(output_dir / "kg_nle_index"))
+    else:
+        captions, retrieved = [], {}
 
-    faiss.write_index(index, str(output_dir / "kg_nle_index"))
     with open(output_dir / "kg_nle_index_captions.json", "w") as handle:
         json.dump(captions, handle, indent=2)
     with open(output_dir / "retrieved_triplets.json", "w") as handle:
@@ -217,6 +238,11 @@ def main():
 
     print(f"joined rows: {len(joined_rows)}")
     print(f"image-level rows with triplets: {len(aggregated)}")
+    if not aggregated:
+        print(
+            "warning: no image-level rows with triplets; skipped FAISS index build. "
+            "Check --image-root, metadata/split CSVs, and input row IDs."
+        )
     print(f"wrote datastore artifacts to {output_dir}")
 
 

@@ -6,6 +6,22 @@ from PIL import Image
 import torch
 from tqdm import tqdm
 
+# Monkey-patch torch.load to default map_location='cpu' so MedCLIP's
+# hardcoded torch.load calls don't segfault on machines without CUDA.
+_orig_torch_load = torch.load
+def _patched_torch_load(*args, **kwargs):
+    kwargs.setdefault('map_location', 'cpu')
+    return _orig_torch_load(*args, **kwargs)
+torch.load = _patched_torch_load
+
+# Monkey-patch torch.meshgrid to always pass indexing='ij' (the original
+# behaviour). Without this, Swin Transformer's relative-position-bias code
+# triggers a native crash on macOS with older PyTorch builds.
+_orig_meshgrid = torch.meshgrid
+def _patched_meshgrid(*tensors, **kwargs):
+    kwargs.setdefault('indexing', 'ij')
+    return _orig_meshgrid(*tensors, **kwargs)
+torch.meshgrid = _patched_meshgrid
 
 from PIL import ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -16,11 +32,17 @@ from medclip import MedCLIPProcessor
 
 def load_clip_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[DEBUG] device: {device}")
     encoder_name = MedCLIPVisionModelViT
+    print("[DEBUG] creating MedCLIPProcessor")
     feature_extractor = MedCLIPProcessor()
+    print("[DEBUG] creating MedCLIPModel")
     clip_model = MedCLIPModel(vision_cls=encoder_name)
+    print("[DEBUG] calling from_pretrained")
     clip_model.from_pretrained()
-    clip_model = clip_model.cuda()
+    print("[DEBUG] moving model to device")
+    clip_model = clip_model.to(device)
+    print("[DEBUG] load_clip_model done")
 
     return clip_model, feature_extractor, device
 
@@ -31,12 +53,19 @@ def load_datastore(index_path, captions_path):
         captions = json.load(f)
     return index, captions
 
-def encode_single_image(image_path, model, feature_extractor, device):
-    """Encodes a single image into its feature representation."""
-    if not os.path.exists(image_path):
-        raise FileNotFoundError(f"Image not found: {image_path}")
-    
-    image = Image.open(image_path).convert("RGB")
+def encode_single_image(image_path, model, feature_extractor, device, image_root=None):
+    """Encodes a single image into its feature representation.
+
+    Args:
+        image_path: Local file path or relative path (when image_root is provided).
+        image_root: Optional ImageRoot instance for GCS or local access.
+    """
+    if image_root is not None:
+        image = image_root.open_image(image_path).convert("RGB")
+    else:
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image not found: {image_path}")
+        image = Image.open(image_path).convert("RGB")
     image_input = feature_extractor(images=[image], return_tensors='pt').pixel_values.to(device)
     
     with torch.no_grad():
@@ -54,16 +83,21 @@ def retrieve_info_for_image(index, image_embed, k=7):
     
     return I[0]  # Return the indices of the nearest neighbors
 
-def get_retrieved_info_for_image(image_path, index_path, captions_path, k=7):
-    """Get the retrieved information for a given image."""
+def get_retrieved_info_for_image(image_path, index_path, captions_path, k=7, image_root=None):
+    """Get the retrieved information for a given image.
+
+    Args:
+        image_path: Local file path or relative path (when image_root is provided).
+        image_root: Optional ImageRoot instance for GCS or local access.
+    """
     # Load the datastore (index and captions)
 
     index, captions = load_datastore(index_path, captions_path)
 
     model, feature_extractor, device = load_clip_model()
-    
+
     # Encode the new image
-    image_embed = encode_single_image(image_path, model, feature_extractor, device)
+    image_embed = encode_single_image(image_path, model, feature_extractor, device, image_root=image_root)
     
     # Retrieve the nearest neighbors
     neighbor_indices = retrieve_info_for_image(index, image_embed, k)
@@ -74,9 +108,8 @@ def get_retrieved_info_for_image(image_path, index_path, captions_path, k=7):
     return retrieved_captions
 
 
-#if __name__ == "__main__":
-    # index_path = datastore/kg_nle_index
-    # captions_path = datastore/kg_nle_index_captions.json
-    # image_path = 
-    #get_retrieved_info_for_image("image_path, index_path,captions_path, k=7")
-
+if __name__ == "__main__":
+    index_path = "tmp/demo/datastore/kg_nle_index"
+    captions_path = "tmp/demo/datastore/kg_nle_index_captions.json"
+    image_path = "physionet.org/mimic-cxr-jpg/2.1.0/files/p10/p10000032/s50414267/02aa804e-bde0afdd-112c0b34-7bc16630-4e384014.jpg"
+    get_retrieved_info_for_image(image_path, index_path,captions_path, k=7)
