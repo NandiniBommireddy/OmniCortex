@@ -1,5 +1,34 @@
-Adding RadLex retrieved knowledge to the RadGraph triplets.
-LLM as judge on 100/709 eval samples
+# Experiment
+
+- Adding RadLex/PrimeKG reasoning chains to the RadGraph triplets.
+- LLM as judge on 100/709 eval samples.
+
+# Metrics Reference
+
+### NLG Metrics (lexical overlap with reference text)
+
+- **BLEU-1/2/4**: n-gram precision between generated and reference text. Higher = more word overlap.
+- **METEOR**: Unigram recall + precision with synonym matching. More forgiving than BLEU.
+- **ROUGE-L**: Longest common subsequence F1. Measures sentence-level structure similarity.
+- **CIDEr**: TF-IDF weighted n-gram similarity. Rewards terms distinctive to the reference corpus.
+
+### Clinical Entity Metrics
+
+- **Entity Recall**: % of reference clinical entities (from a fixed 28-term vocabulary) mentioned in the generated text.
+- **Hallucination Rate**: % of generated clinical entities NOT present in the reference. Lower = better.
+- **RadGraph Precision**: Of clinical entities extracted by RadGraph from generated text, how many also appear in the reference. Higher = less hallucination.
+- **RadGraph Recall**: Of clinical entities extracted by RadGraph from reference text, how many appear in the generated text. Higher = more complete.
+- **RadGraph F1**: Harmonic mean of RadGraph Precision and Recall. Overall clinical entity fidelity.
+
+### LLM-as-Judge (Claude Haiku, 1-5 scale)
+
+- **Clinical Accuracy**: Are the clinical findings correct and supported by the image?
+- **Completeness**: Does the explanation cover all relevant findings from the reference?
+- **Reasoning Quality**: Are causal links and clinical reasoning sound?
+- **Language Quality**: Is the text fluent, clear, and using appropriate medical terminology?
+- **Overall**: Holistic assessment of explanation quality.
+
+---
 
 ## liuhaotian/llava-v1.5-7b
 
@@ -497,3 +526,47 @@ Results (100/100 scored):
 | Reasoning Quality | 2.52/5 | 2.42/5 | 2.57/5  |
 | Language Quality  | 3.42/5 | 3.66/5 | 3.78/5  |
 | Overall           | 2.54/5 | 2.54/5 | 2.71/5  |
+
+
+## google/paligemma2-10b-pt-224
+Base
+```shell
+Results:
+  bleu_1: 31.06
+  bleu_2: 17.97
+  bleu_4: 7.35
+  meteor: 27.25
+  rouge_l: 26.88
+  cider: 43.95
+  entity_recall: 55.16
+  hallucination_rate: 47.19
+  num_samples: 709
+```
+
+RadLex
+```shell
+Results:
+  bleu_1: 32.59
+  bleu_2: 20.17
+  bleu_4: 9.06
+  meteor: 30.32
+  rouge_l: 30.23
+  cider: 58.58
+  entity_recall: 62.23
+  hallucination_rate: 42.26
+  num_samples: 709
+```
+
+PrimeKG
+```shell
+Results:
+  bleu_1: 31.31
+  bleu_2: 19.02
+  bleu_4: 8.44
+  meteor: 28.61
+  rouge_l: 28.72
+  cider: 56.68
+  entity_recall: 55.89
+  hallucination_rate: 47.15
+  num_samples: 709
+```
