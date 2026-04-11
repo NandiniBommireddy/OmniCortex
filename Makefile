@@ -14,7 +14,9 @@ RADPY           := $(RADBIN)/python
 .DEFAULT_GOAL := help
 
 .PHONY: help venv install freeze run test lint format clean \
-	venv-radgraph install-radgraph freeze-radgraph check-radgraph extract-train-radgraph clean-radgraph
+	venv-radgraph install-radgraph freeze-radgraph check-radgraph extract-train-radgraph clean-radgraph \
+	kg-prepare kg-neo4j-up kg-neo4j-down kg-neo4j-logs kg-load kg-verify kg-explore \
+	kg-export-subgraph kg-all kg-clean
 
 help:
 	@echo "Usage: make <target>"
@@ -35,6 +37,18 @@ help:
 	@echo "  check-radgraph        Print key package versions in .venv-radgraph"
 	@echo "  extract-train-radgraph  Run triplet extraction on train split"
 	@echo "  clean-radgraph        Remove .venv-radgraph"
+	@echo ""
+	@echo "PrimeKG / Neo4j targets:"
+	@echo "  kg-prepare            Download & preprocess PrimeKG for Neo4j"
+	@echo "  kg-neo4j-up           Start Neo4j container (Docker Compose)"
+	@echo "  kg-neo4j-down         Stop Neo4j container"
+	@echo "  kg-neo4j-logs         Tail Neo4j container logs"
+	@echo "  kg-load               Load PrimeKG CSVs into Neo4j"
+	@echo "  kg-verify             Verify node/edge counts in Neo4j"
+	@echo "  kg-explore            Run exploration queries (schema, diagnoses, multi-hop)"
+	@echo "  kg-export-subgraph    Export radiology subgraph for pipeline use"
+	@echo "  kg-all                Full pipeline: prepare -> neo4j-up -> load -> explore"
+	@echo "  kg-clean              Remove PrimeKG data and stop Neo4j"
 
 # Create the virtual environment
 venv:
@@ -113,3 +127,61 @@ check-radgraph: install-radgraph
 clean-radgraph:
 	rm -rf $(RADVENV)
 	@echo "Removed $(RADVENV)"
+
+# ──────────────────────────────────────────────────────────────
+#  PrimeKG / Neo4j
+# ──────────────────────────────────────────────────────────────
+
+KG_DATA     := kg/data
+KG_NEO4J_URI := bolt://localhost:7687
+KG_NEO4J_PW  := primekg123
+
+# Download PrimeKG from Harvard Dataverse and prepare CSVs for Neo4j import.
+kg-prepare:
+	$(BIN)/python kg/prepare_primekg.py --data-dir $(KG_DATA)
+
+# Start the Neo4j container via Docker Compose.
+kg-neo4j-up:
+	docker compose -f docker/docker-compose.yaml up -d
+	@echo "Neo4j Browser: http://localhost:7474  (neo4j / $(KG_NEO4J_PW))"
+	@echo "Waiting for Neo4j to be ready ..."
+	@for i in $$(seq 1 30); do \
+		docker compose -f docker/docker-compose.yaml exec -T neo4j cypher-shell -u neo4j -p $(KG_NEO4J_PW) "RETURN 1" > /dev/null 2>&1 && break; \
+		sleep 2; \
+	done
+	@echo "Neo4j is ready."
+
+# Stop the Neo4j container.
+kg-neo4j-down:
+	docker compose -f docker/docker-compose.yaml down
+
+# Tail Neo4j container logs.
+kg-neo4j-logs:
+	docker compose -f docker/docker-compose.yaml logs -f neo4j
+
+# Load prepared PrimeKG CSVs into Neo4j (requires neo4j to be running).
+kg-load:
+	$(BIN)/python kg/load_neo4j.py --uri $(KG_NEO4J_URI) --password $(KG_NEO4J_PW)
+
+# Verify node/edge counts match the paper.
+kg-verify:
+	$(BIN)/python kg/load_neo4j.py --uri $(KG_NEO4J_URI) --password $(KG_NEO4J_PW) --verify-only
+
+# Run exploration queries: schema, seed diagnoses, multi-hop chains.
+kg-explore:
+	$(BIN)/python kg/explore_primekg.py --uri $(KG_NEO4J_URI) --password $(KG_NEO4J_PW)
+
+# Export the 2-hop radiology subgraph around seed diagnoses.
+kg-export-subgraph:
+	$(BIN)/python kg/explore_primekg.py --uri $(KG_NEO4J_URI) --password $(KG_NEO4J_PW) \
+		--export-subgraph --output-dir $(KG_DATA)/subgraph
+
+# Full pipeline: prepare data, start Neo4j, load, explore.
+kg-all: kg-prepare kg-neo4j-up kg-load kg-explore
+	@echo "PrimeKG fully loaded and explored!"
+
+# Remove PrimeKG data and stop Neo4j container + volumes.
+kg-clean: kg-neo4j-down
+	docker compose -f docker/docker-compose.yaml down -v
+	rm -rf $(KG_DATA)
+	@echo "PrimeKG data and Neo4j volumes removed."

@@ -9,8 +9,6 @@ VOLUME_NAME = "kg-llava-demo-train"
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_LLAVA = ROOT / "models" / "LLaVA"
-LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-train-kg-llava.json"
-LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_train"
 
 GCS_BUCKET = "mimic-cxr-jpg-2.1.0.physionet.org"
 GCS_PREFIX = "files/"
@@ -18,9 +16,7 @@ GCS_SECRET_NAME = "gcs-mimic-cxr"
 
 REMOTE_ROOT = "/workspace"
 REMOTE_LLAVA = f"{REMOTE_ROOT}/LLaVA"
-REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava.json"
 REMOTE_IMAGES = f"{REMOTE_ROOT}/images"
-REMOTE_OUT = f"{REMOTE_ROOT}/outputs"
 
 
 image = (
@@ -126,26 +122,15 @@ def _volume_relative(remote_path: str) -> str:
 @app.function(
     volumes={REMOTE_ROOT: volume},
     secrets=[modal.Secret.from_name(GCS_SECRET_NAME)],
-    timeout=60 * 60 * 4,
-    gpu="A10G",
+    timeout=60 * 60 * 12,
+    gpu="A100-40GB"
 )
-def run_demo_train() -> list[str]:
+def run_demo_train(remote_data: str, remote_out: str, model: str = "liuhaotian/llava-v1.5-7b", version: str = "v1") -> list[str]:
     import subprocess
 
     _setup_gcs_credentials()
 
-    # # --- Limit to 100 images for testing (remove for full run) ---
-    # import json
-    # MAX_TRAIN_IMAGES = 100
-    # data = json.load(open(REMOTE_DATA))
-    # if MAX_TRAIN_IMAGES and len(data) > MAX_TRAIN_IMAGES:
-    #     print(f"[LIMIT] slicing data from {len(data)} to {MAX_TRAIN_IMAGES} entries")
-    #     data = data[:MAX_TRAIN_IMAGES]
-    #     with open(REMOTE_DATA, "w") as handle:
-    #         json.dump(data, handle)
-    # # --- End limit ---
-
-    _download_images_from_gcs(REMOTE_DATA, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
+    _download_images_from_gcs(remote_data, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = REMOTE_LLAVA
@@ -158,9 +143,9 @@ def run_demo_train() -> list[str]:
         "--lora_r", "64",
         "--lora_alpha", "128",
         "--mm_projector_lr", "2e-5",
-        "--model_name_or_path", "liuhaotian/llava-v1.5-7b",
-        "--version", "v1",
-        "--data_path", REMOTE_DATA,
+        "--model_name_or_path", model,
+        "--version", version,
+        "--data_path", remote_data,
         "--image_folder", REMOTE_IMAGES,
         "--vision_tower", "openai/clip-vit-large-patch14-336",
         "--mm_projector_type", "mlp2x_gelu",
@@ -170,7 +155,7 @@ def run_demo_train() -> list[str]:
         "--image_aspect_ratio", "pad",
         "--group_by_modality_length", "True",
         "--bf16", "True",
-        "--output_dir", REMOTE_OUT,
+        "--output_dir", remote_out,
         "--num_train_epochs", "1",
         "--per_device_train_batch_size", "1",
         "--per_device_eval_batch_size", "1",
@@ -183,7 +168,7 @@ def run_demo_train() -> list[str]:
         "--weight_decay", "0.",
         "--warmup_ratio", "0.03",
         "--lr_scheduler_type", "cosine",
-        "--logging_steps", "1",
+        "--logging_steps", "100",
         "--tf32", "True",
         "--model_max_length", "2048",
         "--gradient_checkpointing", "True",
@@ -193,7 +178,7 @@ def run_demo_train() -> list[str]:
     ]
     subprocess.run(cmd, check=True, env=env)
     volume.commit()
-    return [REMOTE_OUT]
+    return [remote_out]
 
 
 @app.function(volumes={REMOTE_ROOT: volume}, timeout=60 * 5)
@@ -211,16 +196,32 @@ def fetch_train_outputs(remote_paths: list[str]) -> dict[str, bytes]:
 
 
 @app.local_entrypoint()
-def main():
-    LOCAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def main(variant: str = "radlex", model: str = "liuhaotian/llava-v1.5-7b", version: str = "v1"):
+    """
+    Run training for a given data variant and base model.
+
+    Examples:
+        modal run scripts/modal_demo_train_llava.py
+        modal run scripts/modal_demo_train_llava.py --variant multihop
+        modal run scripts/modal_demo_train_llava.py --model liuhaotian/llava-v1.6-vicuna-13b
+        modal run scripts/modal_demo_train_llava.py --variant ""   # base (no suffix)
+    """
+    model_tag = model.split("/")[-1]
+    suffix = f"-{variant}" if variant else ""
+    local_data = ROOT / "tmp" / "demo" / f"mimic-nle-train-kg-llava{suffix}.json"
+    local_output_dir = ROOT / "tmp" / "demo" / f"llava_modal_train{suffix.replace('-', '_')}_{model_tag}"
+    remote_data = f"{REMOTE_ROOT}/data/mimic-nle-train-kg-llava{suffix}.json"
+    remote_out = f"{REMOTE_ROOT}/outputs{suffix}_{model_tag}"
+
+    local_output_dir.mkdir(parents=True, exist_ok=True)
 
     with volume.batch_upload(force=True) as batch:
         batch.put_directory(str(LOCAL_LLAVA), "LLaVA")
-        batch.put_file(str(LOCAL_DATA), "data/mimic-nle-train-kg-llava.json")
+        batch.put_file(str(local_data), _volume_relative(remote_data))
 
-    remote_paths = run_demo_train.remote()
+    remote_paths = run_demo_train.remote(remote_data, remote_out, model=model, version=version)
     fetched = fetch_train_outputs.remote(remote_paths)
     for name, data in fetched.items():
-        target = LOCAL_OUTPUT_DIR / name
+        target = local_output_dir / name
         _write_bytes(target, data)
         print(f"downloaded {name} -> {target}")
