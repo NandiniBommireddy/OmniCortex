@@ -1,0 +1,9 @@
+Observation from plot and summary
+
+PrimeKG median CIDEr gain is 26.54, while median Overall gain is 0.10.
+RadLex median CIDEr gain is 16.40, while median Overall gain is 0.02.
+PrimeKG small Overall gains (0.05 to 0.15) occur in 4/8 models.
+RadLex small Overall gains (0.05 to 0.15) occur in 1/8 models.
+
+Interpretation:
+The plot supports the claim if automatic metric gains are much larger than clinical gains and most points sit near the bottom-right: large x-values with small y-values.
