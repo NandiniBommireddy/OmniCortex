@@ -10,9 +10,6 @@ VOLUME_NAME = "kg-llava-demo-train"
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_LLAVA = ROOT / "models" / "LLaVA"
-# LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-test-kg-llava.json"
-LOCAL_DATA = ROOT / "tmp" / "demo" / "mimic-nle-test-kg-llava-multihop.json"
-LOCAL_OUTPUT_DIR = ROOT / "tmp" / "demo" / "llava_modal_eval"
 
 GCS_BUCKET = "mimic-cxr-jpg-2.1.0.physionet.org"
 GCS_PREFIX = "files/"
@@ -20,11 +17,8 @@ GCS_SECRET_NAME = "gcs-mimic-cxr"
 
 REMOTE_ROOT = "/workspace"
 REMOTE_LLAVA = f"{REMOTE_ROOT}/LLaVA"
-# REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-test-kg-llava.json"
-REMOTE_DATA = f"{REMOTE_ROOT}/data/mimic-nle-test-kg-llava-multihop.json"
 REMOTE_IMAGES = f"{REMOTE_ROOT}/images"
-# REMOTE_TRAIN_OUT = f"{REMOTE_ROOT}/outputs"
-REMOTE_TRAIN_OUT = f"{REMOTE_ROOT}/outputs-multihop"
+
 REMOTE_LORA_MODEL = f"{REMOTE_ROOT}/llava-lora-demo"
 REMOTE_QFILE = f"{REMOTE_ROOT}/eval/demo_questions.jsonl"
 REMOTE_ANS = f"{REMOTE_ROOT}/eval/demo_answers.jsonl"
@@ -132,32 +126,42 @@ def _volume_relative(remote_path: str) -> str:
     volumes={REMOTE_ROOT: volume},
     secrets=[modal.Secret.from_name(GCS_SECRET_NAME)],
     timeout=60 * 60,
-    gpu="A10G",
+    gpu="A100",
 )
-def run_demo_eval() -> str:
+def run_demo_eval(remote_data: str, remote_train_out: str, model: str = "liuhaotian/llava-v1.5-7b", conv_mode: str = "llava_v1") -> str:
     import subprocess
     import shutil
 
     _setup_gcs_credentials()
 
-    # # --- Limit to 100 images for testing (set to None for full run) ---
-    # MAX_EVAL_IMAGES = 100
-    # data = json.load(open(REMOTE_DATA))
-    # if MAX_EVAL_IMAGES and len(data) > MAX_EVAL_IMAGES:
-    #     print(f"[LIMIT] slicing data from {len(data)} to {MAX_EVAL_IMAGES} entries")
-    #     data = data[:MAX_EVAL_IMAGES]
-    #     with open(REMOTE_DATA, "w") as handle:
-    #         json.dump(data, handle)
-    # # --- End limit ---
-
-    _download_images_from_gcs(REMOTE_DATA, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
+    _download_images_from_gcs(remote_data, REMOTE_IMAGES, GCS_BUCKET, GCS_PREFIX)
 
     os.makedirs(os.path.dirname(REMOTE_QFILE), exist_ok=True)
     if os.path.exists(REMOTE_LORA_MODEL):
         shutil.rmtree(REMOTE_LORA_MODEL)
-    shutil.copytree(REMOTE_TRAIN_OUT, REMOTE_LORA_MODEL)
+    shutil.copytree(remote_train_out, REMOTE_LORA_MODEL)
 
-    data = json.load(open(REMOTE_DATA))
+    # Use latest checkpoint subdir if model weights are nested there
+    import glob
+    checkpoints = sorted(glob.glob(f"{REMOTE_LORA_MODEL}/checkpoint-*"))
+    if checkpoints:
+        model_path = checkpoints[-1]
+        import torch as _torch
+        # Checkpoint dirs don't have config.json — copy it from the base model
+        ckpt_config = os.path.join(model_path, "config.json")
+        if not os.path.exists(ckpt_config):
+            from huggingface_hub import hf_hub_download
+            downloaded = hf_hub_download(repo_id=model, filename="config.json")
+            shutil.copy2(downloaded, ckpt_config)
+        # Checkpoint dirs don't have non_lora_trainables.bin — create empty stub
+        # so builder.py doesn't try to fetch it from HF Hub using a local path
+        non_lora_path = os.path.join(model_path, "non_lora_trainables.bin")
+        if not os.path.exists(non_lora_path):
+            _torch.save({}, non_lora_path)
+    else:
+        model_path = REMOTE_LORA_MODEL
+
+    data = json.load(open(remote_data))
     with open(REMOTE_QFILE, "w") as handle:
         for idx, row in enumerate(data):
             prompt = row["conversations"][0]["value"]
@@ -178,14 +182,15 @@ def run_demo_eval() -> str:
         "python",
         "-m",
         "llava.eval.model_vqa_loader",
-        "--model-path", REMOTE_LORA_MODEL,
-        "--model-base", "liuhaotian/llava-v1.5-7b",
+        "--model-path", model_path,
+        "--model-base", model,
         "--question-file", REMOTE_QFILE,
         "--image-folder", REMOTE_IMAGES,
         "--answers-file", REMOTE_ANS,
         "--temperature", "0",
-        "--conv-mode", "llava_v1",
+        "--conv-mode", conv_mode,
     ]
+
     subprocess.run(cmd, check=True, env=env, cwd=REMOTE_LLAVA)
     volume.commit()
     return REMOTE_ANS
@@ -197,16 +202,31 @@ def fetch_eval_output(remote_path: str) -> bytes:
 
 
 @app.local_entrypoint()
-def main():
-    LOCAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def main(variant: str = "radlex", model: str = "liuhaotian/llava-v1.5-7b", conv_mode: str = "llava_v1"):
+    """
+    Run evaluation for a given data variant and base model.
+
+    Examples:
+        modal run scripts/modal_demo_eval_llava.py
+        modal run scripts/modal_demo_eval_llava.py --variant multihop
+        modal run scripts/modal_demo_eval_llava.py --model liuhaotian/llava-v1.5-13b
+        modal run scripts/modal_demo_eval_llava.py --variant ""   # base (no suffix)
+    """
+    model_tag = model.split("/")[-1]
+    suffix = f"-{variant}" if variant else ""
+    local_data = ROOT / "tmp" / "demo" / f"mimic-nle-test-kg-llava{suffix}.json"
+    local_output_dir = ROOT / "tmp" / "demo" / f"llava_modal_eval{suffix.replace('-', '_')}_{model_tag}"
+    remote_data = f"{REMOTE_ROOT}/data/mimic-nle-test-kg-llava{suffix}.json"
+    remote_train_out = f"{REMOTE_ROOT}/outputs{suffix}_{model_tag}"
+
+    local_output_dir.mkdir(parents=True, exist_ok=True)
 
     with volume.batch_upload(force=True) as batch:
         batch.put_directory(str(LOCAL_LLAVA), "LLaVA")
-        # batch.put_file(str(LOCAL_DATA), "data/mimic-nle-test-kg-llava.json")
-        batch.put_file(str(LOCAL_DATA), "data/mimic-nle-test-kg-llava-multihop.json")
+        batch.put_file(str(local_data), _volume_relative(remote_data))
 
-    remote_path = run_demo_eval.remote()
+    remote_path = run_demo_eval.remote(remote_data, remote_train_out, model=model, conv_mode=conv_mode)
     data = fetch_eval_output.remote(remote_path)
-    target = LOCAL_OUTPUT_DIR / "demo_answers.jsonl"
+    target = local_output_dir / "demo_answers.jsonl"
     _write_bytes(target, data)
     print(f"downloaded demo_answers.jsonl -> {target}")

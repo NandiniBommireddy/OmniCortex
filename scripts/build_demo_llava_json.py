@@ -104,7 +104,7 @@ def main():
     parser.add_argument("--metadata-csv-gz", required=True)
     parser.add_argument("--split-csv-gz", required=True)
     parser.add_argument("--output", required=True, help="Output JSON file path")
-    parser.add_argument("--chains-file", default=None, help="Multi-hop chains JSONL (from build_multihop_chains.py)")
+    parser.add_argument("--chains-file", default=None, help="Reasoning chains JSONL (from build_radlex_chains.py or build_multihop_chains.py)")
     parser.add_argument("--multihop", action="store_true", help="Use multi-hop prompt template")
     args = parser.parse_args()
 
@@ -112,7 +112,7 @@ def main():
     image_by_study, split_by_image = load_metadata(args.metadata_csv_gz, args.split_csv_gz)
     retrieved_triplets = json.load(open(args.retrieved_triplets))
 
-    # Load multi-hop chains keyed by sentence_ID (img_id)
+    # Load chains keyed by sentence_ID (img_id)
     chains_by_id = {}
     if args.chains_file:
         with open(args.chains_file) as f:
