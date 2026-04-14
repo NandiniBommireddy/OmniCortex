@@ -1,0 +1,26 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: primekg-neo4j
+    ports:
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt protocol
+    environment:
+      NEO4J_AUTH: neo4j/primekg123
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_heap_initial__size: 1G
+      NEO4J_dbms_memory_heap_max__size: 2G
+      NEO4J_server_config_strict__validation_enabled: "false"
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - ../kg/data/neo4j:/import
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "primekg123", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  neo4j-data:
+  neo4j-logs:
