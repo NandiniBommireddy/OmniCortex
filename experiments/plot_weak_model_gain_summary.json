@@ -1,0 +1,208 @@
+{
+  "models": [
+    "LLaVA-1.5-7B",
+    "LLaVA-1.6-Vicuna-13B",
+    "LLaVA-1.6-Vicuna-7B",
+    "LLaVA-Med-7B",
+    "Llama-3.2-11B-Vision",
+    "PaLI-Gemma2-10B",
+    "Phi-3.5-Vision",
+    "Qwen2.5-VL-7B"
+  ],
+  "conditions": {
+    "radlex": {
+      "rows": [
+        {
+          "model": "LLaVA-1.5-7B",
+          "base_overall": 2.94,
+          "gain_overall": 0.020000000000000018,
+          "base_bleu4": 8.82,
+          "gain_bleu4": 2.469999999999999,
+          "gain_cider": 16.400000000000006,
+          "gain_rouge_l": 2.359999999999996
+        },
+        {
+          "model": "LLaVA-1.6-Vicuna-13B",
+          "base_overall": 2.98,
+          "gain_overall": -0.16000000000000014,
+          "base_bleu4": 9.27,
+          "gain_bleu4": -0.3699999999999992,
+          "gain_cider": -5.0,
+          "gain_rouge_l": -1.25
+        },
+        {
+          "model": "LLaVA-1.6-Vicuna-7B",
+          "base_overall": 2.98,
+          "gain_overall": -0.040000000000000036,
+          "base_bleu4": 9.16,
+          "gain_bleu4": 2.25,
+          "gain_cider": 17.300000000000004,
+          "gain_rouge_l": 2.3099999999999987
+        },
+        {
+          "model": "LLaVA-Med-7B",
+          "base_overall": 2.67,
+          "gain_overall": 0.0,
+          "base_bleu4": 4.07,
+          "gain_bleu4": -1.58,
+          "gain_cider": -7.68,
+          "gain_rouge_l": -4.91
+        },
+        {
+          "model": "Llama-3.2-11B-Vision",
+          "base_overall": 1.41,
+          "gain_overall": 1.32,
+          "base_bleu4": 0.25,
+          "gain_bleu4": 5.78,
+          "gain_cider": 31.939999999999998,
+          "gain_rouge_l": 16.480000000000004
+        },
+        {
+          "model": "PaLI-Gemma2-10B",
+          "base_overall": 2.7,
+          "gain_overall": 0.1499999999999999,
+          "base_bleu4": 7.35,
+          "gain_bleu4": 1.7100000000000009,
+          "gain_cider": 14.629999999999995,
+          "gain_rouge_l": 3.3500000000000014
+        },
+        {
+          "model": "Phi-3.5-Vision",
+          "base_overall": 2.93,
+          "gain_overall": 0.04999999999999982,
+          "base_bleu4": 8.54,
+          "gain_bleu4": 2.5200000000000014,
+          "gain_cider": 17.77000000000001,
+          "gain_rouge_l": 2.8500000000000014
+        },
+        {
+          "model": "Qwen2.5-VL-7B",
+          "base_overall": 3.0,
+          "gain_overall": -0.29000000000000004,
+          "base_bleu4": 9.39,
+          "gain_bleu4": -5.19,
+          "gain_cider": -32.830000000000005,
+          "gain_rouge_l": -6.509999999999998
+        }
+      ],
+      "pearson_base_vs_gain": -0.975634566844026,
+      "mean_gain_weak_half": 0.37999999999999995,
+      "mean_gain_strong_half": -0.11750000000000005,
+      "median_gain": 0.020000000000000018,
+      "max_gain": 1.32,
+      "min_gain": -0.29000000000000004,
+      "weak_half_models": [
+        "Llama-3.2-11B-Vision",
+        "LLaVA-Med-7B",
+        "PaLI-Gemma2-10B",
+        "Phi-3.5-Vision"
+      ],
+      "strong_half_models": [
+        "LLaVA-1.5-7B",
+        "LLaVA-1.6-Vicuna-13B",
+        "LLaVA-1.6-Vicuna-7B",
+        "Qwen2.5-VL-7B"
+      ]
+    },
+    "primekg": {
+      "rows": [
+        {
+          "model": "LLaVA-1.5-7B",
+          "base_overall": 2.94,
+          "gain_overall": 0.050000000000000266,
+          "base_bleu4": 8.82,
+          "gain_bleu4": 3.17,
+          "gain_cider": 26.64,
+          "gain_rouge_l": 3.6900000000000013
+        },
+        {
+          "model": "LLaVA-1.6-Vicuna-13B",
+          "base_overall": 2.98,
+          "gain_overall": 0.0,
+          "base_bleu4": 9.27,
+          "gain_bleu4": 3.360000000000001,
+          "gain_cider": 26.54,
+          "gain_rouge_l": 4.510000000000002
+        },
+        {
+          "model": "LLaVA-1.6-Vicuna-7B",
+          "base_overall": 2.98,
+          "gain_overall": 0.010000000000000231,
+          "base_bleu4": 9.16,
+          "gain_bleu4": 3.2799999999999994,
+          "gain_cider": 27.9,
+          "gain_rouge_l": 4.459999999999997
+        },
+        {
+          "model": "LLaVA-Med-7B",
+          "base_overall": 2.67,
+          "gain_overall": 0.1200000000000001,
+          "base_bleu4": 4.07,
+          "gain_bleu4": 0.5,
+          "gain_cider": 1.4400000000000013,
+          "gain_rouge_l": 0.4400000000000013
+        },
+        {
+          "model": "Llama-3.2-11B-Vision",
+          "base_overall": 1.41,
+          "gain_overall": 1.7,
+          "base_bleu4": 0.25,
+          "gain_bleu4": 11.83,
+          "gain_cider": 84.69,
+          "gain_rouge_l": 25.080000000000005
+        },
+        {
+          "model": "PaLI-Gemma2-10B",
+          "base_overall": 2.7,
+          "gain_overall": 0.029999999999999805,
+          "base_bleu4": 7.35,
+          "gain_bleu4": 1.0899999999999999,
+          "gain_cider": 12.729999999999997,
+          "gain_rouge_l": 1.8399999999999999
+        },
+        {
+          "model": "Phi-3.5-Vision",
+          "base_overall": 2.93,
+          "gain_overall": 0.09999999999999964,
+          "base_bleu4": 8.54,
+          "gain_bleu4": 2.1500000000000004,
+          "gain_cider": 19.650000000000006,
+          "gain_rouge_l": 3.519999999999996
+        },
+        {
+          "model": "Qwen2.5-VL-7B",
+          "base_overall": 3.0,
+          "gain_overall": 0.10000000000000009,
+          "base_bleu4": 9.39,
+          "gain_bleu4": 2.219999999999999,
+          "gain_cider": 22.409999999999997,
+          "gain_rouge_l": 4.460000000000004
+        }
+      ],
+      "pearson_base_vs_gain": -0.9733070979198403,
+      "mean_gain_weak_half": 0.4874999999999999,
+      "mean_gain_strong_half": 0.04000000000000015,
+      "median_gain": 0.09999999999999964,
+      "max_gain": 1.7,
+      "min_gain": 0.0,
+      "weak_half_models": [
+        "Llama-3.2-11B-Vision",
+        "LLaVA-Med-7B",
+        "PaLI-Gemma2-10B",
+        "Phi-3.5-Vision"
+      ],
+      "strong_half_models": [
+        "LLaVA-1.5-7B",
+        "LLaVA-1.6-Vicuna-13B",
+        "LLaVA-1.6-Vicuna-7B",
+        "Qwen2.5-VL-7B"
+      ]
+    }
+  },
+  "claim": {
+    "supported_for_primekg": true,
+    "supported_for_radlex": true,
+    "primekg_stronger_gap": true,
+    "radlex_stronger_gap": true
+  }
+}

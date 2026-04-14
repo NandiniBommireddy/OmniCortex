@@ -1,0 +1,9 @@
+Observation from plot and summary
+
+PrimeKG Pearson correlation between Base Overall and gain is -0.973.
+PrimeKG weak-half mean gain is 0.49, versus 0.04 for the strong half.
+RadLex Pearson correlation between Base Overall and gain is -0.976.
+RadLex weak-half mean gain is 0.38, versus -0.12 for the strong half.
+
+Interpretation:
+Lower-performing models gain more from augmentation if the correlation is negative and the weak-half average gain is larger than the strong-half average gain.
