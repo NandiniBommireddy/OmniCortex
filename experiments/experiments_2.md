@@ -28,6 +28,22 @@
 - **Language Quality**: Is the text fluent, clear, and using appropriate medical terminology?
 - **Overall**: Holistic assessment of explanation quality.
 
+### Metrics Included in This File
+
+This file is the primary running results log for the project. It currently includes:
+
+- **NLG metrics** for the evaluated model variants: BLEU-1/2/4, METEOR, ROUGE-L, CIDEr
+- **Clinical entity metrics** where available: Entity Recall, Hallucination Rate, RadGraph Precision, RadGraph Recall, RadGraph F1
+- **LLM-as-judge metrics**: Clinical Accuracy, Completeness, Reasoning Quality, Language Quality, Overall
+- **Judge robustness runs** currently available for `liuhaotian/llava-v1.5-7b`: Claude Haiku 4.5 and Claude Sonnet 4
+
+### Metrics Not Yet Promoted into the Tables
+
+- **Chain Coverage**
+- **Average Hop Depth**
+
+These two KG-usage metrics exist in some intermediate result artifacts, but the currently available cached files in `tmp/demo` appear stale or duplicated for `no-hop` and `RadLex`. Rather than copy numbers that may be incorrect, they are intentionally left out of the model comparison tables until they are recomputed cleanly from the latest corrected-triplet runs.
+
 ---
 
 ## liuhaotian/llava-v1.5-7b
@@ -86,12 +102,12 @@ Results:
 LLM-as-judge
 
 ```shell
-Results (99/100 scored):
-  clinical_accuracy: 2.78/5
-  completeness: 2.13/5
-  reasoning_quality: 2.92/5
-  language_quality: 3.99/5
-  overall: 2.96/5
+Results (100/100 scored):
+  clinical_accuracy: 2.88/5
+  completeness: 2.26/5
+  reasoning_quality: 3.05/5
+  language_quality: 4.06/5
+  overall: 3.06/5
 ```
 
 ### PrimeKG
@@ -144,15 +160,27 @@ Results (99/100 scored):
 | RadGraph F1        | 42.52         | 47.84  | 50.63   |
 | Num Samples        | 709           | 709    | 709     |
 
-#### LLM-as-Judge (scored 99/100)
+#### LLM-as-Judge (corrected triplets, Claude Haiku 4.5)
 
 | Metric            | Base (no-hop) | RadLex | PrimeKG |
 | ----------------- | ------------- | ------ | ------- |
-| Clinical Accuracy | 2.75/5        | 2.78/5 | 2.73/5  |
-| Completeness      | 2.03/5        | 2.13/5 | 2.18/5  |
-| Reasoning Quality | 2.98/5        | 2.92/5 | 2.95/5  |
-| Language Quality  | 4.01/5        | 3.99/5 | 4.10/5  |
-| Overall           | 2.94/5        | 2.96/5 | 2.99/5  |
+| Clinical Accuracy | 2.75/5        | 2.88/5 | 2.79/5  |
+| Completeness      | 2.05/5        | 2.26/5 | 2.18/5  |
+| Reasoning Quality | 2.89/5        | 3.05/5 | 2.90/5  |
+| Language Quality  | 4.06/5        | 4.06/5 | 4.08/5  |
+| Overall           | 2.94/5        | 3.06/5 | 2.99/5  |
+
+#### LLM-as-Judge Robustness (Claude Sonnet 4, scored 100/100)
+
+| Metric            | Base (no-hop) | RadLex | PrimeKG |
+| ----------------- | ------------- | ------ | ------- |
+| Clinical Accuracy | 3.19/5        | 3.30/5 | 3.13/5  |
+| Completeness      | 2.25/5        | 2.51/5 | 2.46/5  |
+| Reasoning Quality | 3.69/5        | 3.67/5 | 3.58/5  |
+| Language Quality  | 4.52/5        | 4.52/5 | 4.46/5  |
+| Overall           | 3.41/5        | 3.50/5 | 3.41/5  |
+
+Across both judge models, RadLex remains the strongest variant overall for `liuhaotian/llava-v1.5-7b`, which makes the judge-based conclusion less likely to be an artifact of a single evaluator.
 
 ## liuhaotian/llava-v1.6-vicuna-7b
 
