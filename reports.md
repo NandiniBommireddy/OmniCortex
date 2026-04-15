@@ -120,6 +120,17 @@ Evaluated on 100 samples (seed=42). Each dimension rated 1–5.
 
 ---
 
+### Update: Judge Robustness on Corrected Triplets
+
+After regenerating corrected test triplets and rerunning LLM-as-judge for `liuhaotian/llava-v1.5-7b`, the RadLex variant remained the strongest system across multiple judge models.
+
+| Judge Model | Base Overall | PrimeKG Overall | RadLex Overall |
+|------------|--------------|-----------------|----------------|
+| Claude Haiku 4.5 | 2.94 | 2.99 | **3.06** |
+| Claude Sonnet 4 | 3.41 | 3.41 | **3.50** |
+
+This matters because it strengthens the claim that the RadLex improvement is not specific to a single LLM judge. The absolute values differ by judge model, but the ranking remains stable: RadLex stays best overall, PrimeKG is mixed, and the baseline remains weakest or tied for weakest.
+
 ## Results
 
 ### NLG Metrics (n=709)

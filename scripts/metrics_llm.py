@@ -29,7 +29,7 @@ from pathlib import Path
 
 from openai import OpenAI
 
-MODEL = "anthropic/claude-haiku-4-5"
+DEFAULT_MODEL = "anthropic/claude-haiku-4-5"
 
 GCS_BUCKET = "mimic-cxr-jpg-2.1.0.physionet.org"
 GCS_PREFIX = "files/"
@@ -123,7 +123,7 @@ def extract_json(text: str) -> dict:
 REQUIRED_DIMS = ["clinical_accuracy", "completeness", "reasoning_quality", "language_quality"]
 
 
-def judge_single(client: OpenAI, hypothesis: str, reference: str, image_b64: str | None = None, retries: int = 2) -> dict:
+def judge_single(client: OpenAI, model: str, hypothesis: str, reference: str, image_b64: str | None = None, retries: int = 2) -> dict:
     if image_b64:
         prompt = JUDGE_PROMPT_IMAGE.format(reference=reference, hypothesis=hypothesis)
         content = [
@@ -135,7 +135,7 @@ def judge_single(client: OpenAI, hypothesis: str, reference: str, image_b64: str
         content = prompt
     for attempt in range(retries + 1):
         resp = client.chat.completions.create(
-            model=MODEL,
+            model=model,
             max_tokens=256,
             messages=[{"role": "user", "content": content}],
         )
@@ -156,6 +156,7 @@ def main():
     parser.add_argument("--answers", required=True, type=Path)
     parser.add_argument("--references", required=True, type=Path)
     parser.add_argument("--output", type=Path, default=Path("tmp/demo/eval_results_llm.json"))
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL, help="OpenRouter judge model name")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit samples to evaluate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for sampling")
     parser.add_argument("--with-image", action="store_true", help="Include X-ray image in judge prompt (downloads from GCS, cached locally)")
@@ -190,7 +191,7 @@ def main():
         print(f"Sampled {len(indices)} indices (seed={args.seed}): {indices[:10]}{'...' if len(indices) > 10 else ''}")
 
     num_samples = len(hypotheses)
-    print(f"Evaluating {num_samples} samples with {MODEL} (images={'yes' if args.with_image else 'no'})...")
+    print(f"Evaluating {num_samples} samples with {args.model} (images={'yes' if args.with_image else 'no'})...")
 
     dims = ["clinical_accuracy", "completeness", "reasoning_quality", "language_quality"]
     totals = {d: 0.0 for d in dims}
@@ -203,7 +204,7 @@ def main():
             continue
         try:
             image_b64 = fetch_image_b64(gcs_bucket, img_path, args.images_dir) if gcs_bucket else None
-            scores = judge_single(client, hyp, ref, image_b64=image_b64)
+            scores = judge_single(client, args.model, hyp, ref, image_b64=image_b64)
             per_sample.append(scores)
             for d in dims:
                 totals[d] += scores[d]
@@ -222,7 +223,7 @@ def main():
         "averages": averages,
         "num_scored": scored,
         "num_samples": num_samples,
-        "model": MODEL,
+        "model": args.model,
         "with_image": args.with_image,
         "per_sample": per_sample,
     }
